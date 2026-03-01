@@ -1,0 +1,28 @@
+[
+  {
+    "id": "moleratcommander",
+    "name": "Mole Rat Commander",
+    "avatarUrl": "https://cdn.discordapp.com/attachments/1393235599510474805/1472930660024061962/Untitled426_20260207212115.png?ex=69945d13&is=69930b93&hm=5a5141eb86e83874614a3da693ed9c79f5ddca93ffef2d72913748eb50fa243e&",
+    "bio": "Commander of the Mole Rat Army",
+    "backstory": "Perviously was in war with the undead bio hazard rats that escape from the 5th facility.\nWas saved by Prof Chaos and decided to swear loyalty towards him.\nNow has been given intelligence and power.",
+    "age": 3,
+    "race": "Mole Rat",
+    "relationship": "neutral"
+  },
+  {
+    "id": "fixthemechanic",
+    "name": "Fix the mechanic",
+    "bio": "Fixes everythings",
+    "class": "Asylum Staff",
+    "relationship": "ally"
+  },
+  {
+    "id": "bob",
+    "name": "Bob",
+    "avatarUrl": "https://cdn.discordapp.com/attachments/950028940557295659/1371721511089737789/Untitled310_20250131211416.png?ex=69954eb5&is=6993fd35&hm=07ecdf260d346b33444ebe9e0d122c22896ebd6d10f27a816fe2c99243104aeb",
+    "bio": "Endless hatreds to his own kind",
+    "backstory": "An victim of war, abandoned by his comrades to left to decay.\nProf Chaos saved him and gave him power for revenge.",
+    "age": 4,
+    "relationship": "neutral"
+  }
+]
