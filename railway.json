@@ -1,0 +1,18 @@
+{
+  "build": {
+    "builder": "DOCKERFILE",
+    "watchPatterns": [
+      "bot.js",
+      "payments-server.js",
+      "package.json",
+      "package-lock.json",
+      "Dockerfile",
+      "config/**",
+      "data/**"
+    ]
+  },
+  "deploy": {
+    "startCommand": "npm run start",
+    "restartPolicyType": "ALWAYS"
+  }
+}

@@ -163,6 +163,15 @@ if (!Array.isArray(characters)) {
   throw new Error("data/characters.json must be an array.");
 }
 
+if (characters.length === 0) {
+  const fallbackCharacters = readJson(DEFAULT_CHARACTERS_PATH, []);
+  if (Array.isArray(fallbackCharacters) && fallbackCharacters.length > 0) {
+    characters.push(...fallbackCharacters);
+    writeJson(CHARACTERS_PATH, characters);
+    console.log(`Seeded ${fallbackCharacters.length} character(s) from config defaults.`);
+  }
+}
+
 let assignments = readJson(ASSIGNMENTS_PATH, {});
 let selections = readJson(SELECTIONS_PATH, {});
 let webhooks = readJson(WEBHOOKS_PATH, {});

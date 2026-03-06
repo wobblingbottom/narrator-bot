@@ -1,1 +1,98 @@
-[]
+[
+	{
+		"id": "small_p",
+		"guildId": "950028939890413578",
+		"name": "Small P",
+		"avatarUrl": "https://cdn.discordapp.com/attachments/1261012238630653967/1478438150790578316/Screenshot_2025-12-23_020917.png?ex=69a86653&is=69a714d3&hm=ab7f2110afc29804b8e0666f3b404bba683c520a046b1b0a3f4d755bf457a6b3&",
+		"bio": "Small P",
+		"personality": "Small P",
+		"backstory": "Born",
+		"age": 1,
+		"race": "Small P",
+		"class": "Small P",
+		"relationship": "Small P"
+	},
+	{
+		"id": "charles",
+		"guildId": "950028939890413578",
+		"name": "Charleston"
+	},
+	{
+		"id": "papa",
+		"guildId": "950028939890413578",
+		"name": "Papa TKM",
+		"avatarUrl": "https://cdn.discordapp.com/attachments/1284328994464075829/1478720814177058988/image.png?ex=69a96d93&is=69a81c13&hm=8152a8e82cabe4e0467621529997dadcda263652e2f5ff057c45140c70fa9390&",
+		"backstory": "Left for milk.",
+		"age": "Unknown",
+		"race": "Muppet",
+		"class": "Father of TKMs",
+		"bio": "Greatest scientist, owner of the Crazyland TKM Corporation.",
+		"relationship": "neutral"
+	},
+	{
+		"id": "fix_the_mechanic",
+		"guildId": "950028939890413578",
+		"name": "Fix the mechanic"
+	},
+	{
+		"id": "mariomario",
+		"guildId": "950028939890413578",
+		"name": "Mario Mario",
+		"personality": "bread loving munchikg"
+	},
+	{
+		"id": "scientist",
+		"guildId": "950028939890413578",
+		"name": "Scientist",
+		"avatarUrl": "https://cdn.discordapp.com/attachments/950061851088150608/1479445689565057114/Untitled2_20260218171605.png?ex=69ac10ab&is=69aabf2b&hm=019b61237b50b3da30c71eef958395d29b9e221f441705fb3366921332f10234&",
+		"bio": "A scientist who works for Prof Chaos",
+		"personality": "None",
+		"backstory": "A scientist who works for Prof Chaos",
+		"age": "Unknown",
+		"race": "human",
+		"class": "Scientist and Guard",
+		"relationship": "Neutral"
+	},
+	{
+		"id": "luigimario",
+		"guildId": "1136341600168058940",
+		"name": "Luigi Mario"
+	},
+	{
+		"id": "fsdsdad",
+		"guildId": "1136341600168058940",
+		"name": "adsdsda"
+	},
+	{
+		"id": "doctor_chorozon",
+		"guildId": "950028939890413578",
+		"name": "Dr. Chorozon VI",
+		"age": "Unknown"
+	},
+	{
+		"id": "insanity",
+		"guildId": "950028939890413578",
+		"name": "Insanity",
+		"avatarUrl": "https://cdn.discordapp.com/attachments/950061851088150608/1479454711479537834/Untitled2_20260306200522.png?ex=69ac1912&is=69aac792&hm=b8236b32ce4a03cc44438fdf246cb677e004848d9eb71c5ea049b11b759471ab&",
+		"bio": "An failed experiment from Prof Chaos",
+		"personality": "Insane",
+		"backstory": "A mere captive of the government meant to spy on Prof Chaos but failed",
+		"age": "Unknown",
+		"race": "Human?",
+		"class": "Brute",
+		"relationship": "foe"
+	},
+	{
+		"id": "cat",
+		"guildId": "950028939890413578",
+		"name": "cat",
+		"avatarUrl": "https://cdn.discordapp.com/attachments/950061851088150608/1479455541360197826/Untitled310_20250131202623.png?ex=69ac19d8&is=69aac858&hm=74280840a0e746d626a21baa8d21e1d8a337a98c3f3a2f3e25fe94676b9a3c65&",
+		"bio": "Just a cat",
+		"personality": "Cute",
+		"backstory": "meow",
+		"age": "Unknown",
+		"race": "cat?",
+		"class": "none",
+		"relationship": "neutral"
+	}
+]
