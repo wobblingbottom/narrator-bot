@@ -141,6 +141,13 @@ For detailed hosting docs:
 - `QUICKSTART.md`
 - `PAYPAL_SETUP.md`
 
+## Policies
+
+- `TERMS_OF_SERVICE.md`
+- `PRIVACY_POLICY.md`
+
+Before public launch, replace placeholder contact text in both files.
+
 ## Security
 
 - Never commit real secrets in `.env`.
