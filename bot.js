@@ -1263,26 +1263,53 @@ async function replyComponentsV2(interaction, title, lines, extraComponents, opt
     ...options
   };
   delete replyOptions.accentColor;
+  const fallbackText = [title, ...(Array.isArray(lines) ? lines : [])]
+    .filter((line) => typeof line === "string" && line.trim().length > 0)
+    .join("\n");
 
-  if (!interaction.replied && !interaction.deferred) {
-    await interaction.reply(replyOptions);
-    return;
-  }
+  const sendFallback = async () => {
+    const fallbackPayload = {
+      content: fallbackText || "Done.",
+      ephemeral: true
+    };
 
-  if (interaction.deferred && !interaction.replied) {
-    const editPayload = { ...replyOptions };
-    delete editPayload.flags;
-    delete editPayload.ephemeral;
-    await interaction.editReply(editPayload);
-    return;
-  }
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply(fallbackPayload);
+      return;
+    }
 
-  const followUpPayload = { ...replyOptions };
-  if (followUpPayload.flags === 32768 && followUpPayload.ephemeral === undefined) {
-    followUpPayload.ephemeral = true;
+    if (interaction.deferred && !interaction.replied) {
+      await interaction.editReply({ content: fallbackPayload.content, components: [] });
+      return;
+    }
+
+    await interaction.followUp(fallbackPayload);
+  };
+
+  try {
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply(replyOptions);
+      return;
+    }
+
+    if (interaction.deferred && !interaction.replied) {
+      const editPayload = { ...replyOptions };
+      delete editPayload.flags;
+      delete editPayload.ephemeral;
+      await interaction.editReply(editPayload);
+      return;
+    }
+
+    const followUpPayload = { ...replyOptions };
+    if (followUpPayload.flags === 32768 && followUpPayload.ephemeral === undefined) {
+      followUpPayload.ephemeral = true;
+    }
+    delete followUpPayload.flags;
+    await interaction.followUp(followUpPayload);
+  } catch (error) {
+    console.error("replyComponentsV2 failed, using text fallback:", error);
+    await sendFallback();
   }
-  delete followUpPayload.flags;
-  await interaction.followUp(followUpPayload);
 }
 
 async function editComponentsV2(interaction, title, lines, extraComponents, options = {}) {
@@ -1292,7 +1319,27 @@ async function editComponentsV2(interaction, title, lines, extraComponents, opti
     ...options
   };
   delete replyOptions.accentColor;
-  await interaction.editReply(replyOptions);
+
+  try {
+    await interaction.editReply(replyOptions);
+  } catch (error) {
+    console.error("editComponentsV2 failed, using text fallback:", error);
+    const fallbackText = [title, ...(Array.isArray(lines) ? lines : [])]
+      .filter((line) => typeof line === "string" && line.trim().length > 0)
+      .join("\n");
+
+    if (interaction.deferred && !interaction.replied) {
+      await interaction.editReply({ content: fallbackText || "Done.", components: [] });
+      return;
+    }
+
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply({ content: fallbackText || "Done.", ephemeral: true });
+      return;
+    }
+
+    await interaction.followUp({ content: fallbackText || "Done.", ephemeral: true });
+  }
 }
 
 
