@@ -63,7 +63,7 @@ const DISCORD_PREMIUM_SLOT_SKU_IDS = new Set(
     .map((value) => value.trim())
     .filter((value) => value.length > 0)
 );
-const CURRENCY_EMOJI_RAW = (process.env.CURRENCY_EMOJI || "🍬").trim();
+const CURRENCY_EMOJI_RAW = (process.env.CURRENCY_EMOJI || "<:sundrop:1479231387864399963>").trim();
 const SHOP_ITEM_EMOJI_RAW = "<:pointer:1478835623853949109>";
 const POINTS_EMOJI_RAW = "<:sundrop:1479231387864399963>";
 const UNSUCCESSFUL_EMOJI_RAW = "<:unsuccess:1479238199774806149>";
@@ -1939,7 +1939,8 @@ function getShopItems(guildId, userId) {
 }
 
 function getCurrencyEmojiForButton() {
-  const customEmojiMatch = CURRENCY_EMOJI_RAW.match(/^<(a?):([a-zA-Z0-9_]+):(\d+)>$/);
+  const shopButtonEmojiRaw = POINTS_EMOJI_RAW;
+  const customEmojiMatch = shopButtonEmojiRaw.match(/^<(a?):([a-zA-Z0-9_]+):(\d+)>$/);
   if (customEmojiMatch) {
     return {
       id: customEmojiMatch[3],
@@ -1948,7 +1949,7 @@ function getCurrencyEmojiForButton() {
     };
   }
 
-  return { name: CURRENCY_EMOJI_RAW || "🍬" };
+  return { name: shopButtonEmojiRaw || CURRENCY_EMOJI_RAW || "🍬" };
 }
 
 function buildShopView(guildId, userId, page = 0, statusLine = null) {
