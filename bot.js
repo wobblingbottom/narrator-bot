@@ -63,6 +63,7 @@ const DISCORD_PREMIUM_SLOT_SKU_IDS = new Set(
     .map((value) => value.trim())
     .filter((value) => value.length > 0)
 );
+const DISCORD_PREMIUM_PURCHASE_URL = String(process.env.DISCORD_PREMIUM_PURCHASE_URL || "").trim();
 const CURRENCY_EMOJI_RAW = (process.env.CURRENCY_EMOJI || "<:sundrop:1479231387864399963>").trim();
 const SHOP_ITEM_EMOJI_RAW = "<:pointer:1478835623853949109>";
 const POINTS_EMOJI_RAW = "<:sundrop:1479231387864399963>";
@@ -2087,6 +2088,7 @@ function buildHelpView(guildId, userId, isAdmin, page = 0) {
         `${BULLET_EMOJI_RAW} \`/user edit\` - Edit your own profile`,
         `${BULLET_EMOJI_RAW} \`/wallet\` - View user + character wallets`,
         `${BULLET_EMOJI_RAW} \`/shop\` - Buy upgrades and other items`,
+        `${BULLET_EMOJI_RAW} \`/premium\` - Open premium purchase instructions`,
         `${BULLET_EMOJI_RAW} \`/say\` - Speak as your selected character (optional image + reply_to message ID)`,
         `${BULLET_EMOJI_RAW} \`/points\` - View points`,
         `${BULLET_EMOJI_RAW} \`/leaderboard\` - View rankings`
@@ -2713,6 +2715,10 @@ async function registerCommands() {
     .setName("help")
     .setDescription("View available commands");
 
+  const premiumCommand = new SlashCommandBuilder()
+    .setName("premium")
+    .setDescription("Get the premium purchase link and steps");
+
   const shopCommand = new SlashCommandBuilder()
     .setName("shop")
     .setDescription("View slot and upgrade shop prices");
@@ -2774,6 +2780,7 @@ async function registerCommands() {
     setupCommand.toJSON(),
     botSayCommand.toJSON(),
     helpCommand.toJSON(),
+    premiumCommand.toJSON(),
     shopCommand.toJSON(),
     walletCommand.toJSON(),
     leaderboardCommand.toJSON(),
@@ -4922,6 +4929,28 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
+      if (interaction.commandName === "premium") {
+        const appId = client.application?.id || process.env.CLIENT_ID || "";
+        const purchaseUrl = DISCORD_PREMIUM_PURCHASE_URL || (appId ? `https://discord.com/application-directory/${appId}` : "");
+
+        const lines = [
+          "Premium purchases are handled by Discord, not by an in-bot currency command.",
+          purchaseUrl
+            ? `Open this page and use the app's premium purchase flow: ${purchaseUrl}`
+            : "Open this app's profile in Discord and use the Premium purchase flow.",
+          "After buying, run `/wallet` and check `Slot Sources: Base + Premium`."
+        ];
+
+        await replyComponentsV2(
+          interaction,
+          "Premium",
+          lines,
+          [],
+          { ephemeral: true }
+        );
+        return;
+      }
+
       if (interaction.commandName === "help") {
         const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
         const helpView = buildHelpView(interaction.guildId, interaction.user.id, isAdmin, 0);
@@ -5748,6 +5777,7 @@ client.on("interactionCreate", async (interaction) => {
           { name: "/user edit", desc: "Edit your profile" },
           { name: "/wallet", desc: "View combined user + character wallet" },
           { name: "/shop", desc: "Buy upgrades and other shop items" },
+          { name: "/premium", desc: "Get premium purchase link + steps" },
           { name: "/say [message] [image] [reply_to]", desc: "Send message as your character with optional image/reply" },
           { name: "/points", desc: "View your user/character points" },
           { name: "/leaderboard [type] [limit]", desc: "View user or character rankings" }
