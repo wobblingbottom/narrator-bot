@@ -1381,22 +1381,68 @@ function toFollowUpPayload(options) {
   return payload;
 }
 
+function getFallbackInteractionText(options) {
+  const payload = normalizeReplyPayload(options);
+  if (typeof payload.content === "string" && payload.content.trim().length > 0) {
+    return payload.content;
+  }
+  return "Done.";
+}
+
 function installInteractionAckGuard(interaction, timeoutMs = 2000) {
   if (!interaction?.isChatInputCommand?.()) {
     return () => {};
   }
 
   const originalReply = interaction.reply.bind(interaction);
-  interaction.reply = async (options) => {
+  const originalEditReply = interaction.editReply.bind(interaction);
+  const originalFollowUp = interaction.followUp.bind(interaction);
+
+  const sendFallbackText = async (options, sourceError) => {
+    const fallbackText = getFallbackInteractionText(options);
+    console.error("Interaction response failed, falling back to plain text:", sourceError);
+
     if (interaction.deferred && !interaction.replied) {
-      return interaction.editReply(toEditReplyPayload(options));
+      return originalEditReply({ content: fallbackText, components: [] });
     }
 
     if (interaction.replied) {
-      return interaction.followUp(toFollowUpPayload(options));
+      return originalFollowUp({ content: fallbackText, ephemeral: true });
     }
 
-    return originalReply(options);
+    return originalReply({ content: fallbackText, ephemeral: true });
+  };
+
+  interaction.reply = async (options) => {
+    try {
+      if (interaction.deferred && !interaction.replied) {
+        return originalEditReply(toEditReplyPayload(options));
+      }
+
+      if (interaction.replied) {
+        return originalFollowUp(toFollowUpPayload(options));
+      }
+
+      return originalReply(options);
+    } catch (error) {
+      return sendFallbackText(options, error);
+    }
+  };
+
+  interaction.editReply = async (options) => {
+    try {
+      return originalEditReply(options);
+    } catch (error) {
+      return sendFallbackText(options, error);
+    }
+  };
+
+  interaction.followUp = async (options) => {
+    try {
+      return originalFollowUp(options);
+    } catch (error) {
+      return sendFallbackText(options, error);
+    }
   };
 
   const timer = setTimeout(async () => {
@@ -3061,6 +3107,11 @@ client.on("guildDelete", () => {
 });
 
 client.on("interactionCreate", async (interaction) => {
+  const interactionLabel = interaction.isChatInputCommand?.()
+    ? `/${interaction.commandName}`
+    : interaction.customId || interaction.type;
+  console.log(`Interaction received: ${interactionLabel} from ${interaction.user?.id || "unknown-user"}`);
+
   const clearAckGuard = installInteractionAckGuard(interaction);
   try {
     syncPremiumSlotsFromInteraction(interaction);
@@ -7104,6 +7155,14 @@ client.on("messageCreate", async (message) => {
   } catch (error) {
     console.error("Failed to award message points:", error);
   }
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection:", reason);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught exception:", error);
 });
 
 await initEconomyDatabase();
