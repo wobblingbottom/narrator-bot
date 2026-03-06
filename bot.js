@@ -4191,9 +4191,8 @@ client.on("interactionCreate", async (interaction) => {
             }
           });
         }
+        return;
       }
-
-      return;
 
       if (interaction.commandName === "user") {
         const subcommand = interaction.options.getSubcommand();
