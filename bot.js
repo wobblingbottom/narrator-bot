@@ -1263,7 +1263,26 @@ async function replyComponentsV2(interaction, title, lines, extraComponents, opt
     ...options
   };
   delete replyOptions.accentColor;
-  await interaction.reply(replyOptions);
+
+  if (!interaction.replied && !interaction.deferred) {
+    await interaction.reply(replyOptions);
+    return;
+  }
+
+  if (interaction.deferred && !interaction.replied) {
+    const editPayload = { ...replyOptions };
+    delete editPayload.flags;
+    delete editPayload.ephemeral;
+    await interaction.editReply(editPayload);
+    return;
+  }
+
+  const followUpPayload = { ...replyOptions };
+  if (followUpPayload.flags === 32768 && followUpPayload.ephemeral === undefined) {
+    followUpPayload.ephemeral = true;
+  }
+  delete followUpPayload.flags;
+  await interaction.followUp(followUpPayload);
 }
 
 async function editComponentsV2(interaction, title, lines, extraComponents, options = {}) {
@@ -3184,6 +3203,14 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.isChatInputCommand()) {
+      if (!interaction.replied && !interaction.deferred) {
+        try {
+          await interaction.deferReply({ ephemeral: true });
+        } catch (deferError) {
+          console.error("Failed to defer slash command interaction:", deferError);
+        }
+      }
+
       if (interaction.commandName === "admin") {
         if (!interaction.inGuild()) {
           await replyComponentsV2(
