@@ -53,7 +53,7 @@ Access may be limited or removed for users or servers that violate these Terms, 
 
 ## 9. Contact
 
-For support or legal requests, contact: INSERT_CONTACT_EMAIL_OR_SERVER_LINK
+For support or legal requests, contact: crazyland.art@gmail.com
 
 ## 10. Updates to These Terms
 
