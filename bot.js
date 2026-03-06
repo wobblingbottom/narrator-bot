@@ -1579,7 +1579,7 @@ function getPremiumSlotBonus(guildId, userId) {
 function getUserCharacterSlotLimit(guildId, userId) {
   const storedSlots = getStoredUserCharacterSlotLimit(guildId, userId);
   const premiumSlots = getPremiumSlotBonus(guildId, userId);
-  return Math.min(MAX_CHARACTER_SLOTS, storedSlots + premiumSlots);
+  return storedSlots + premiumSlots;
 }
 
 function getNextSlotCost(currentSlots) {
@@ -1895,9 +1895,9 @@ function getTopCharacterPoints(guildId, limit = 10) {
 }
 
 function getShopItems(guildId, userId) {
-  const slotLimit = getUserCharacterSlotLimit(guildId, userId);
-  const nextSlotCost = getNextSlotCost(slotLimit);
-  const canBuySlot = slotLimit < MAX_CHARACTER_SLOTS;
+  const baseSlotLimit = getStoredUserCharacterSlotLimit(guildId, userId);
+  const nextSlotCost = getNextSlotCost(baseSlotLimit);
+  const canBuySlot = baseSlotLimit < MAX_CHARACTER_SLOTS;
 
   const items = [
     {
@@ -1905,7 +1905,7 @@ function getShopItems(guildId, userId) {
       name: "Character Slot +1",
       description: canBuySlot
         ? "Unlock one additional character slot for this server."
-        : `Maximum slots reached (${MAX_CHARACTER_SLOTS}/${MAX_CHARACTER_SLOTS}).`,
+        : `Maximum base slots reached (${MAX_CHARACTER_SLOTS}/${MAX_CHARACTER_SLOTS}).`,
       wallet: "User Wallet",
       cost: canBuySlot ? nextSlotCost : "MAX",
       available: canBuySlot,
@@ -4279,7 +4279,7 @@ client.on("interactionCreate", async (interaction) => {
         const userPoints = getUserPoints(interaction.guildId, userId);
         const slotLimit = getUserCharacterSlotLimit(interaction.guildId, userId);
         const premiumSlots = getPremiumSlotBonus(interaction.guildId, userId);
-        const baseSlotLimit = Math.max(DEFAULT_CHARACTER_SLOTS, slotLimit - premiumSlots);
+        const baseSlotLimit = getStoredUserCharacterSlotLimit(interaction.guildId, userId);
         const usedSlots = getOwnedCharacterCount(interaction.guildId, userId);
 
         let characterId = interaction.options.getString("character", false)
@@ -5605,19 +5605,20 @@ client.on("interactionCreate", async (interaction) => {
 
         if (itemId === "slot") {
           const userId = interaction.user.id;
-          const currentSlots = getUserCharacterSlotLimit(interaction.guildId, userId);
-          const slotCost = getNextSlotCost(currentSlots);
+          const currentBaseSlots = getStoredUserCharacterSlotLimit(interaction.guildId, userId);
+          const slotCost = getNextSlotCost(currentBaseSlots);
           const currentPoints = getUserPoints(interaction.guildId, userId);
 
-          if (currentSlots >= MAX_CHARACTER_SLOTS) {
-            statusLine = `${UNSUCCESSFUL_EMOJI_RAW} You already have the maximum slots (${MAX_CHARACTER_SLOTS}).`;
+          if (currentBaseSlots >= MAX_CHARACTER_SLOTS) {
+            statusLine = `${UNSUCCESSFUL_EMOJI_RAW} You already have the maximum base slots (${MAX_CHARACTER_SLOTS}).`;
           } else 
           if (currentPoints < slotCost) {
             statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Not enough user points: ${formatPointsWithEmoji(currentPoints)}/${formatPointsWithEmoji(slotCost)}`;
           } else if (spendPoints(interaction.guildId, userId, slotCost)) {
             increaseUserCharacterSlots(interaction.guildId, userId, 1);
-            const newSlots = getUserCharacterSlotLimit(interaction.guildId, userId);
-            statusLine = `<:success:1479234774861221898> Bought +1 slot. You now have ${newSlots} slots.`;
+            const newBaseSlots = getStoredUserCharacterSlotLimit(interaction.guildId, userId);
+            const newTotalSlots = getUserCharacterSlotLimit(interaction.guildId, userId);
+            statusLine = `<:success:1479234774861221898> Bought +1 base slot. You now have ${newTotalSlots} total slots (Base ${newBaseSlots} + Premium ${getPremiumSlotBonus(interaction.guildId, userId)}).`;
           }
         } else if (itemId.startsWith("role:")) {
           const shopRoleItemId = itemId.slice("role:".length);
