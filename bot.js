@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
 import sharp from "sharp";
+import Database from "better-sqlite3";
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -24,13 +25,61 @@ dotenv.config();
 
 const DATA_DIR = path.resolve("./data");
 const CONFIG_DIR = path.resolve("./config");
-const CHARACTERS_PATH = path.join(CONFIG_DIR, "characters.json");
+const DEFAULT_CHARACTERS_PATH = path.join(CONFIG_DIR, "characters.json");
+const CHARACTERS_PATH = path.join(DATA_DIR, "characters.json");
 const ASSIGNMENTS_PATH = path.join(DATA_DIR, "assignments.json");
 const SELECTIONS_PATH = path.join(DATA_DIR, "selections.json");
 const WEBHOOKS_PATH = path.join(DATA_DIR, "webhooks.json");
 const LOGS_CHANNEL_PATH = path.join(DATA_DIR, "logsChannel.json");
+const ADMIN_ROLES_PATH = path.join(DATA_DIR, "adminRoles.json");
 const MESSAGE_LOGS_PATH = path.join(DATA_DIR, "messageLogs.json");
 const USERS_PROFILES_PATH = path.join(DATA_DIR, "userProfiles.json");
+const POINTS_PATH = path.join(DATA_DIR, "points.json");
+const CHARACTER_POINTS_PATH = path.join(DATA_DIR, "characterPoints.json");
+const USER_SLOTS_PATH = path.join(DATA_DIR, "userSlots.json");
+const CHARACTER_UPGRADES_PATH = path.join(DATA_DIR, "characterUpgrades.json");
+const SHOP_ROLE_ITEMS_PATH = path.join(DATA_DIR, "shopRoleItems.json");
+const ECONOMY_DB_PATH = path.join(DATA_DIR, "economy.sqlite");
+
+const MESSAGE_POINTS_MIN = 0.25;
+const MESSAGE_POINTS_MAX = 1;
+const POINTS_PER_CHARACTER_MESSAGE = 2;
+const MESSAGE_POINTS_COOLDOWN_MS = 30000;
+const CHARACTER_POINTS_COOLDOWN_MS = 10000;
+const DEFAULT_CHARACTER_SLOTS = 1;
+const MAX_CHARACTER_SLOTS = 6;
+const SLOT_BASE_COST = 90;
+const SLOT_COST_STEP = 60;
+const SHOP_PAGE_SIZE = 4;
+const WEBHOOK_AUTO_DELETE_MS = 60000;
+const WEBHOOK_NAME_PREFIX = "Crazyland";
+const WEBHOOK_SLOT_CYCLE_SIZE = 1;
+const WEBHOOK_RECOVERY_MAX_ATTEMPTS = Math.max(5, WEBHOOK_SLOT_CYCLE_SIZE * 4);
+const CURRENCY_EMOJI_RAW = (process.env.CURRENCY_EMOJI || "🍬").trim();
+const SHOP_ITEM_EMOJI_RAW = "<:pointer:1478835623853949109>";
+const POINTS_EMOJI_RAW = "<:sundrop:1479231387864399963>";
+const UNSUCCESSFUL_EMOJI_RAW = "<:unsuccess:1479238199774806149>";
+const BULLET_EMOJI_RAW = "<:bullet:1479240196191944938>";
+
+const CHARACTER_UPGRADE_DEFINITIONS = {
+  character_wallet_boost: {
+    id: "character_wallet_boost",
+    name: "Character Wallet Boost",
+    cost: 75,
+    description: "+1 extra character point whenever /say awards points"
+  },
+  cooldown_boost: {
+    id: "cooldown_boost",
+    name: "Cooldown Boost",
+    cost: 113,
+    description: "Reduces this character's /say point cooldown by 50%"
+  }
+};
+
+const messagePointsCooldowns = new Map();
+const characterPointsCooldowns = new Map();
+const webhookAutoDeleteTimers = new Map();
+const webhookSlotCursorByChannel = new Map();
 
 function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) {
@@ -39,40 +88,440 @@ function ensureDir(dirPath) {
 }
 
 function readJson(filePath, fallback) {
+  const backupPath = `${filePath}.bak`;
+
+  const parseFile = (targetPath) => {
+    const raw = fs.readFileSync(targetPath, "utf8");
+    return JSON.parse(raw);
+  };
+
   try {
     if (!fs.existsSync(filePath)) {
+      if (fs.existsSync(backupPath)) {
+        return parseFile(backupPath);
+      }
       return fallback;
     }
-    const raw = fs.readFileSync(filePath, "utf8");
-    return JSON.parse(raw);
+    return parseFile(filePath);
   } catch (error) {
     console.error(`Failed to read ${filePath}:`, error);
+
+    try {
+      if (fs.existsSync(backupPath)) {
+        console.warn(`Attempting backup recovery from ${backupPath}`);
+        return parseFile(backupPath);
+      }
+    } catch (backupError) {
+      console.error(`Failed to read backup ${backupPath}:`, backupError);
+    }
+
     return fallback;
   }
 }
 
 function writeJson(filePath, data) {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  const dir = path.dirname(filePath);
+  const backupPath = `${filePath}.bak`;
+  const tempPath = path.join(
+    dir,
+    `.${path.basename(filePath)}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`
+  );
+
+  ensureDir(dir);
+  const serialized = JSON.stringify(data, null, 2);
+
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.copyFileSync(filePath, backupPath);
+    }
+
+    fs.writeFileSync(tempPath, serialized, "utf8");
+    fs.renameSync(tempPath, filePath);
+  } catch (error) {
+    try {
+      if (fs.existsSync(tempPath)) {
+        fs.unlinkSync(tempPath);
+      }
+    } catch {
+      // ignore cleanup errors
+    }
+    console.error(`Failed atomic write for ${filePath}:`, error);
+    throw error;
+  }
 }
 
 ensureDir(DATA_DIR);
 ensureDir(CONFIG_DIR);
 
 if (!fs.existsSync(CHARACTERS_PATH)) {
-  throw new Error("Missing config/characters.json. Create it before starting the bot.");
+  const seedCharacters = readJson(DEFAULT_CHARACTERS_PATH, []);
+  writeJson(CHARACTERS_PATH, Array.isArray(seedCharacters) ? seedCharacters : []);
 }
 
 const characters = readJson(CHARACTERS_PATH, []);
-if (!Array.isArray(characters) || characters.length === 0) {
-  throw new Error("config/characters.json must be a non-empty array.");
+if (!Array.isArray(characters)) {
+  throw new Error("data/characters.json must be an array.");
 }
 
 let assignments = readJson(ASSIGNMENTS_PATH, {});
 let selections = readJson(SELECTIONS_PATH, {});
 let webhooks = readJson(WEBHOOKS_PATH, {});
 let logsChannelId = readJson(LOGS_CHANNEL_PATH, null);
+let adminRoles = readJson(ADMIN_ROLES_PATH, {});
 let messageLogs = readJson(MESSAGE_LOGS_PATH, []);
 let userProfiles = readJson(USERS_PROFILES_PATH, {});
+let points = readJson(POINTS_PATH, {});
+let characterPoints = readJson(CHARACTER_POINTS_PATH, {});
+let userSlots = readJson(USER_SLOTS_PATH, {});
+let characterUpgrades = readJson(CHARACTER_UPGRADES_PATH, {});
+let shopRoleItems = readJson(SHOP_ROLE_ITEMS_PATH, []);
+let economyDb = null;
+
+if (!Array.isArray(shopRoleItems)) {
+  shopRoleItems = [];
+}
+
+if (!adminRoles || typeof adminRoles !== "object" || Array.isArray(adminRoles)) {
+  adminRoles = {};
+}
+
+function parseScopedStorageKey(key) {
+  if (typeof key !== "string") {
+    return null;
+  }
+
+  const separatorIndex = key.indexOf(":");
+  if (separatorIndex <= 0 || separatorIndex >= key.length - 1) {
+    return null;
+  }
+
+  return {
+    scopeId: key.slice(0, separatorIndex),
+    entityId: key.slice(separatorIndex + 1)
+  };
+}
+
+function importEconomyJsonIntoSqliteIfEmpty() {
+  if (!economyDb) {
+    return;
+  }
+
+  const userPointsCount = Number(economyDb.prepare("SELECT COUNT(*) AS count FROM user_points").get()?.count || 0);
+  if (userPointsCount === 0 && Object.keys(points).length > 0) {
+    const insertUserPoints = economyDb.prepare(`
+      INSERT INTO user_points (scope_id, user_id, points)
+      VALUES (?, ?, ?)
+      ON CONFLICT(scope_id, user_id) DO UPDATE SET points = excluded.points
+    `);
+    const transaction = economyDb.transaction((entries) => {
+      for (const [key, value] of entries) {
+        const parsed = parseScopedStorageKey(key);
+        if (!parsed || !Number.isFinite(value) || value <= 0) {
+          continue;
+        }
+        insertUserPoints.run(parsed.scopeId, parsed.entityId, value);
+      }
+    });
+    transaction(Object.entries(points));
+  }
+
+  const characterPointsCount = Number(economyDb.prepare("SELECT COUNT(*) AS count FROM character_points").get()?.count || 0);
+  if (characterPointsCount === 0 && Object.keys(characterPoints).length > 0) {
+    const insertCharacterPoints = economyDb.prepare(`
+      INSERT INTO character_points (scope_id, character_id, points)
+      VALUES (?, ?, ?)
+      ON CONFLICT(scope_id, character_id) DO UPDATE SET points = excluded.points
+    `);
+    const transaction = economyDb.transaction((entries) => {
+      for (const [key, value] of entries) {
+        const parsed = parseScopedStorageKey(key);
+        if (!parsed || !Number.isFinite(value) || value <= 0) {
+          continue;
+        }
+        insertCharacterPoints.run(parsed.scopeId, parsed.entityId, value);
+      }
+    });
+    transaction(Object.entries(characterPoints));
+  }
+
+  const userSlotsCount = Number(economyDb.prepare("SELECT COUNT(*) AS count FROM user_slots").get()?.count || 0);
+  if (userSlotsCount === 0 && Object.keys(userSlots).length > 0) {
+    const insertUserSlots = economyDb.prepare(`
+      INSERT INTO user_slots (scope_id, user_id, slots)
+      VALUES (?, ?, ?)
+      ON CONFLICT(scope_id, user_id) DO UPDATE SET slots = excluded.slots
+    `);
+    const transaction = economyDb.transaction((entries) => {
+      for (const [key, value] of entries) {
+        const parsed = parseScopedStorageKey(key);
+        if (!parsed || !Number.isFinite(value) || value < DEFAULT_CHARACTER_SLOTS) {
+          continue;
+        }
+        insertUserSlots.run(parsed.scopeId, parsed.entityId, Math.floor(value));
+      }
+    });
+    transaction(Object.entries(userSlots));
+  }
+
+  const characterUpgradesCount = Number(economyDb.prepare("SELECT COUNT(*) AS count FROM character_upgrades").get()?.count || 0);
+  if (characterUpgradesCount === 0 && Object.keys(characterUpgrades).length > 0) {
+    const insertUpgrade = economyDb.prepare(`
+      INSERT OR IGNORE INTO character_upgrades (scope_id, character_id, upgrade_id)
+      VALUES (?, ?, ?)
+    `);
+    const transaction = economyDb.transaction((entries) => {
+      for (const [key, value] of entries) {
+        const parsed = parseScopedStorageKey(key);
+        if (!parsed || !Array.isArray(value)) {
+          continue;
+        }
+        for (const upgradeId of value) {
+          if (typeof upgradeId === "string" && upgradeId.length > 0) {
+            insertUpgrade.run(parsed.scopeId, parsed.entityId, upgradeId);
+          }
+        }
+      }
+    });
+    transaction(Object.entries(characterUpgrades));
+  }
+}
+
+function loadEconomyCachesFromSqlite() {
+  if (!economyDb) {
+    return;
+  }
+
+  points = {};
+  characterPoints = {};
+  userSlots = {};
+  characterUpgrades = {};
+
+  const userPointRows = economyDb.prepare("SELECT scope_id, user_id, points FROM user_points WHERE points > 0").all();
+  for (const row of userPointRows) {
+    points[`${row.scope_id}:${row.user_id}`] = row.points;
+  }
+
+  const characterPointRows = economyDb.prepare("SELECT scope_id, character_id, points FROM character_points WHERE points > 0").all();
+  for (const row of characterPointRows) {
+    characterPoints[`${row.scope_id}:${row.character_id}`] = row.points;
+  }
+
+  const userSlotRows = economyDb.prepare("SELECT scope_id, user_id, slots FROM user_slots WHERE slots >= ?").all(DEFAULT_CHARACTER_SLOTS);
+  for (const row of userSlotRows) {
+    userSlots[`${row.scope_id}:${row.user_id}`] = row.slots;
+  }
+
+  const upgradeRows = economyDb.prepare("SELECT scope_id, character_id, upgrade_id FROM character_upgrades").all();
+  for (const row of upgradeRows) {
+    const key = `${row.scope_id}:${row.character_id}`;
+    if (!characterUpgrades[key]) {
+      characterUpgrades[key] = [];
+    }
+    characterUpgrades[key].push(row.upgrade_id);
+  }
+}
+
+async function initEconomyDatabase() {
+  ensureDir(DATA_DIR);
+
+  economyDb = new Database(ECONOMY_DB_PATH);
+  economyDb.pragma("journal_mode = WAL");
+  economyDb.pragma("synchronous = FULL");
+
+  economyDb.exec(`
+    CREATE TABLE IF NOT EXISTS user_points (
+      scope_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      points REAL NOT NULL DEFAULT 0,
+      PRIMARY KEY (scope_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS character_points (
+      scope_id TEXT NOT NULL,
+      character_id TEXT NOT NULL,
+      points REAL NOT NULL DEFAULT 0,
+      PRIMARY KEY (scope_id, character_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS user_slots (
+      scope_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      slots INTEGER NOT NULL,
+      PRIMARY KEY (scope_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS character_upgrades (
+      scope_id TEXT NOT NULL,
+      character_id TEXT NOT NULL,
+      upgrade_id TEXT NOT NULL,
+      PRIMARY KEY (scope_id, character_id, upgrade_id)
+    );
+  `);
+
+  importEconomyJsonIntoSqliteIfEmpty();
+  loadEconomyCachesFromSqlite();
+  console.log("Economy DB backend: SQLite");
+}
+
+function upsertUserPointsInDb(guildId, userId, value) {
+  if (!guildId || !userId) {
+    return;
+  }
+
+  if (!economyDb) {
+    return;
+  }
+
+  const scopeId = getScopeId(guildId);
+
+  if (!Number.isFinite(value) || value <= 0) {
+    economyDb.prepare("DELETE FROM user_points WHERE scope_id = ? AND user_id = ?").run(scopeId, userId);
+    return;
+  }
+
+  economyDb.prepare(`
+    INSERT INTO user_points (scope_id, user_id, points)
+    VALUES (?, ?, ?)
+    ON CONFLICT(scope_id, user_id) DO UPDATE SET points = excluded.points
+  `).run(scopeId, userId, value);
+}
+
+function upsertCharacterPointsInDb(guildId, characterId, value) {
+  if (!guildId || !characterId) {
+    return;
+  }
+
+  if (!economyDb) {
+    return;
+  }
+
+  const scopeId = getScopeId(guildId);
+
+  if (!Number.isFinite(value) || value <= 0) {
+    economyDb.prepare("DELETE FROM character_points WHERE scope_id = ? AND character_id = ?").run(scopeId, characterId);
+    return;
+  }
+
+  economyDb.prepare(`
+    INSERT INTO character_points (scope_id, character_id, points)
+    VALUES (?, ?, ?)
+    ON CONFLICT(scope_id, character_id) DO UPDATE SET points = excluded.points
+  `).run(scopeId, characterId, value);
+}
+
+function upsertUserSlotsInDb(guildId, userId, slots) {
+  if (!guildId || !userId) {
+    return;
+  }
+
+  if (!economyDb) {
+    return;
+  }
+
+  const scopeId = getScopeId(guildId);
+  const safeSlots = Number.isFinite(slots) ? Math.floor(slots) : DEFAULT_CHARACTER_SLOTS;
+
+  if (safeSlots <= DEFAULT_CHARACTER_SLOTS) {
+    economyDb.prepare("DELETE FROM user_slots WHERE scope_id = ? AND user_id = ?").run(scopeId, userId);
+    return;
+  }
+
+  economyDb.prepare(`
+    INSERT INTO user_slots (scope_id, user_id, slots)
+    VALUES (?, ?, ?)
+    ON CONFLICT(scope_id, user_id) DO UPDATE SET slots = excluded.slots
+  `).run(scopeId, userId, safeSlots);
+}
+
+function addCharacterUpgradeInDb(guildId, characterId, upgradeId) {
+  if (!guildId || !characterId || !upgradeId) {
+    return;
+  }
+
+  if (!economyDb) {
+    return;
+  }
+
+  const scopeId = getScopeId(guildId);
+
+  economyDb.prepare(`
+    INSERT OR IGNORE INTO character_upgrades (scope_id, character_id, upgrade_id)
+    VALUES (?, ?, ?)
+  `).run(scopeId, characterId, upgradeId);
+}
+
+function clearCharacterPointsInDb(guildId, characterId) {
+  if (!guildId || !characterId) {
+    return;
+  }
+
+  if (!economyDb) {
+    return;
+  }
+
+  const scopeId = getScopeId(guildId);
+  economyDb.prepare("DELETE FROM character_points WHERE scope_id = ? AND character_id = ?").run(scopeId, characterId);
+}
+
+function clearCharacterUpgradesInDb(guildId, characterId) {
+  if (!guildId || !characterId) {
+    return;
+  }
+
+  if (!economyDb) {
+    return;
+  }
+
+  const scopeId = getScopeId(guildId);
+  economyDb.prepare("DELETE FROM character_upgrades WHERE scope_id = ? AND character_id = ?").run(scopeId, characterId);
+}
+
+const legacyCharacterIds = characters
+  .filter((character) => !character.guildId)
+  .map((character) => character.id);
+
+if (legacyCharacterIds.length > 0) {
+  for (let index = characters.length - 1; index >= 0; index -= 1) {
+    if (!characters[index].guildId) {
+      characters.splice(index, 1);
+    }
+  }
+
+  for (const key of Object.keys(assignments)) {
+    const characterId = key.includes(":") ? key.split(":").pop() : key;
+    if (legacyCharacterIds.includes(characterId)) {
+      delete assignments[key];
+    }
+  }
+
+  for (const key of Object.keys(selections)) {
+    if (legacyCharacterIds.includes(selections[key])) {
+      delete selections[key];
+    }
+  }
+
+  for (const key of Object.keys(characterPoints)) {
+    const characterId = key.includes(":") ? key.split(":").pop() : key;
+    if (legacyCharacterIds.includes(characterId)) {
+      delete characterPoints[key];
+    }
+  }
+
+  for (const key of Object.keys(characterUpgrades)) {
+    const characterId = key.includes(":") ? key.split(":").pop() : key;
+    if (legacyCharacterIds.includes(characterId)) {
+      delete characterUpgrades[key];
+    }
+  }
+
+  writeJson(CHARACTERS_PATH, characters);
+  writeJson(ASSIGNMENTS_PATH, assignments);
+  writeJson(SELECTIONS_PATH, selections);
+  writeJson(CHARACTER_POINTS_PATH, characterPoints);
+  writeJson(CHARACTER_UPGRADES_PATH, characterUpgrades);
+  console.log(`Removed ${legacyCharacterIds.length} legacy global character(s) without guildId.`);
+}
+
 
 function saveAssignments() {
   writeJson(ASSIGNMENTS_PATH, assignments);
@@ -86,8 +535,211 @@ function saveWebhooks() {
   writeJson(WEBHOOKS_PATH, webhooks);
 }
 
+async function withTimeout(promise, timeoutMs, timeoutMessage) {
+  let timeoutHandle;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(new Error(timeoutMessage || "Operation timed out."));
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
+function clearWebhookAutoDeleteTimer(webhookId) {
+  if (!webhookId) {
+    return;
+  }
+
+  const entry = webhookAutoDeleteTimers.get(webhookId);
+  if (!entry) {
+    return;
+  }
+
+  clearTimeout(entry.timer);
+  webhookAutoDeleteTimers.delete(webhookId);
+}
+
+function clearAllWebhookAutoDeleteTimers() {
+  for (const { timer } of webhookAutoDeleteTimers.values()) {
+    clearTimeout(timer);
+  }
+  webhookAutoDeleteTimers.clear();
+}
+
+function removeWebhookFromChannelCache(channelId, webhookId) {
+  const channelEntries = webhooks[channelId];
+  if (!channelEntries || typeof channelEntries !== "object") {
+    return;
+  }
+
+  let changed = false;
+  for (const [characterId, cachedEntry] of Object.entries(channelEntries)) {
+    if (cachedEntry?.id === webhookId) {
+      delete channelEntries[characterId];
+      changed = true;
+    }
+  }
+
+  if (Object.keys(channelEntries).length === 0) {
+    delete webhooks[channelId];
+    changed = true;
+  }
+
+  if (changed) {
+    saveWebhooks();
+  }
+}
+
+function scheduleWebhookAutoDelete(channelId, webhookInfo) {
+  if (!channelId || !webhookInfo?.id || !webhookInfo?.token) {
+    return;
+  }
+
+  clearWebhookAutoDeleteTimer(webhookInfo.id);
+
+  const timer = setTimeout(async () => {
+    try {
+      const webhookClient = new WebhookClient({
+        id: webhookInfo.id,
+        token: webhookInfo.token
+      });
+      await webhookClient.delete("Auto-delete after 1 minute.");
+    } catch (error) {
+      // ignore if already deleted or invalid
+    } finally {
+      removeWebhookFromChannelCache(channelId, webhookInfo.id);
+      webhookAutoDeleteTimers.delete(webhookInfo.id);
+    }
+  }, WEBHOOK_AUTO_DELETE_MS);
+
+  if (typeof timer.unref === "function") {
+    timer.unref();
+  }
+
+  webhookAutoDeleteTimers.set(webhookInfo.id, { timer, channelId });
+}
+
+function escapeRegex(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getCachedWebhookEntryById(channelId, webhookId) {
+  const channelEntries = webhooks[channelId];
+  if (!channelEntries || typeof channelEntries !== "object") {
+    return null;
+  }
+
+  for (const cachedEntry of Object.values(channelEntries)) {
+    if (cachedEntry?.id === webhookId && cachedEntry?.token) {
+      return {
+        id: cachedEntry.id,
+        token: cachedEntry.token
+      };
+    }
+  }
+
+  return null;
+}
+
+async function getManagedSlotWebhooks(targetChannel, botMember, channelId) {
+  const slotNameRegex = new RegExp(`^${escapeRegex(WEBHOOK_NAME_PREFIX)}\\s+(\\d+)$`, "i");
+  const fetchedWebhooks = await targetChannel.fetchWebhooks();
+  const groupedBySlot = new Map();
+
+  for (const webhook of fetchedWebhooks.values()) {
+    if (botMember?.id && webhook.owner?.id && webhook.owner.id !== botMember.id) {
+      continue;
+    }
+
+    const slotMatch = webhook.name?.match(slotNameRegex);
+    if (!slotMatch) {
+      continue;
+    }
+
+    const slotNumber = Number(slotMatch[1]);
+    if (!Number.isInteger(slotNumber) || slotNumber <= 0) {
+      continue;
+    }
+
+    if (slotNumber > WEBHOOK_SLOT_CYCLE_SIZE) {
+      try {
+        await webhook.delete("Removing extra slot webhook.");
+      } catch (error) {
+        // ignore cleanup failures
+      }
+      clearWebhookAutoDeleteTimer(webhook.id);
+      removeWebhookFromChannelCache(channelId, webhook.id);
+      continue;
+    }
+
+    const token = webhook.token || getCachedWebhookEntryById(channelId, webhook.id)?.token || null;
+    const existing = groupedBySlot.get(slotNumber) || [];
+    existing.push({
+      slot: slotNumber,
+      id: webhook.id,
+      token,
+      webhook,
+      createdTimestamp: webhook.createdTimestamp || 0
+    });
+    groupedBySlot.set(slotNumber, existing);
+  }
+
+  const reusableBySlot = new Map();
+
+  for (const [slotNumber, entries] of groupedBySlot.entries()) {
+    entries.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+    const keepEntry = entries.find((entry) => Boolean(entry.token)) || entries[0];
+
+    if (keepEntry?.token) {
+      reusableBySlot.set(slotNumber, {
+        id: keepEntry.id,
+        token: keepEntry.token
+      });
+      for (const duplicateEntry of entries) {
+        if (duplicateEntry.id === keepEntry.id) {
+          continue;
+        }
+
+        try {
+          await duplicateEntry.webhook.delete("Removing duplicate slot webhook.");
+        } catch (error) {
+          // ignore cleanup failures
+        }
+        clearWebhookAutoDeleteTimer(duplicateEntry.id);
+        removeWebhookFromChannelCache(channelId, duplicateEntry.id);
+      }
+    } else {
+      for (const staleEntry of entries) {
+        try {
+          await staleEntry.webhook.delete("Removing unusable slot webhook.");
+        } catch (error) {
+          // ignore cleanup failures
+        }
+        clearWebhookAutoDeleteTimer(staleEntry.id);
+        removeWebhookFromChannelCache(channelId, staleEntry.id);
+      }
+    }
+  }
+
+  return {
+    reusableBySlot
+  };
+}
+
 function saveLogsChannel() {
   writeJson(LOGS_CHANNEL_PATH, logsChannelId);
+}
+
+function saveAdminRoles() {
+  writeJson(ADMIN_ROLES_PATH, adminRoles);
 }
 
 function saveMessageLogs() {
@@ -98,16 +750,335 @@ function saveUserProfiles() {
   writeJson(USERS_PROFILES_PATH, userProfiles);
 }
 
+function savePoints() {
+  writeJson(POINTS_PATH, points);
+}
+
+function saveCharacterPoints() {
+  writeJson(CHARACTER_POINTS_PATH, characterPoints);
+}
+
+function saveUserSlots() {
+  writeJson(USER_SLOTS_PATH, userSlots);
+}
+
+function saveCharacterUpgrades() {
+  writeJson(CHARACTER_UPGRADES_PATH, characterUpgrades);
+}
+
+function saveShopRoleItems() {
+  writeJson(SHOP_ROLE_ITEMS_PATH, shopRoleItems);
+}
+
+function parseChannelIdInput(rawValue) {
+  if (typeof rawValue !== "string") {
+    return null;
+  }
+
+  const trimmed = rawValue.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const mentionMatch = trimmed.match(/^<#(\d+)>$/);
+  if (mentionMatch) {
+    return mentionMatch[1];
+  }
+
+  const idMatch = trimmed.match(/^(\d{17,22})$/);
+  if (idMatch) {
+    return idMatch[1];
+  }
+
+  return null;
+}
+
+function getLogsChannelIdForGuild(guildId) {
+  if (!logsChannelId) {
+    return null;
+  }
+
+  if (typeof logsChannelId === "string") {
+    return logsChannelId;
+  }
+
+  if (typeof logsChannelId === "object" && !Array.isArray(logsChannelId)) {
+    return logsChannelId[getScopeId(guildId)] || null;
+  }
+
+  return null;
+}
+
+function setLogsChannelIdForGuild(guildId, channelId) {
+  if (!guildId) {
+    return;
+  }
+
+  if (!logsChannelId || typeof logsChannelId !== "object" || Array.isArray(logsChannelId)) {
+    logsChannelId = {};
+  }
+
+  const key = getScopeId(guildId);
+  if (channelId) {
+    logsChannelId[key] = channelId;
+  } else {
+    delete logsChannelId[key];
+  }
+
+  saveLogsChannel();
+}
+
+function getAdminRoleIds(guildId) {
+  if (!guildId) {
+    return [];
+  }
+
+  const key = getScopeId(guildId);
+  const value = adminRoles[key];
+  return Array.isArray(value) ? value : [];
+}
+
+function addAdminRoleId(guildId, roleId) {
+  if (!guildId || !roleId) {
+    return;
+  }
+
+  const key = getScopeId(guildId);
+  const existing = new Set(getAdminRoleIds(guildId));
+  existing.add(roleId);
+  adminRoles[key] = Array.from(existing);
+  saveAdminRoles();
+}
+
+function removeAdminRoleId(guildId, roleId) {
+  if (!guildId || !roleId) {
+    return;
+  }
+
+  const key = getScopeId(guildId);
+  const updated = getAdminRoleIds(guildId).filter((id) => id !== roleId);
+  if (updated.length > 0) {
+    adminRoles[key] = updated;
+  } else {
+    delete adminRoles[key];
+  }
+  saveAdminRoles();
+}
+
+function hasAdminAccess(interaction) {
+  if (!interaction?.inGuild?.() || !interaction.guildId) {
+    return false;
+  }
+
+  if (interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+    return true;
+  }
+
+  const configuredRoleIds = new Set(getAdminRoleIds(interaction.guildId));
+  if (configuredRoleIds.size === 0) {
+    return false;
+  }
+
+  const memberRoleCache = interaction.member?.roles?.cache;
+  if (!memberRoleCache) {
+    return false;
+  }
+
+  for (const roleId of configuredRoleIds) {
+    if (memberRoleCache.has(roleId)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function generateShopRoleItemId() {
+  return `roleitem_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getShopRoleItemsForGuild(guildId) {
+  if (!guildId) {
+    return [];
+  }
+
+  return shopRoleItems.filter((item) => item && item.guildId === guildId);
+}
+
+function parseRoleIdInput(rawValue) {
+  if (typeof rawValue !== "string") {
+    return null;
+  }
+
+  const trimmed = rawValue.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const mentionMatch = trimmed.match(/^<@&(\d+)>$/);
+  if (mentionMatch) {
+    return mentionMatch[1];
+  }
+
+  const idMatch = trimmed.match(/^(\d{17,22})$/);
+  if (idMatch) {
+    return idMatch[1];
+  }
+
+  return null;
+}
+
+function buildRoleShopAdminPanel(guildId, statusLine = null) {
+  const roleItems = getShopRoleItemsForGuild(guildId);
+  const components = [
+    { type: 10, content: "## Role Shop Manager" },
+    { type: 10, content: "Manage user-wallet role items shown in `/shop`." },
+    { type: 14, divider: true, spacing: 1 }
+  ];
+
+  if (statusLine) {
+    components.push({ type: 10, content: statusLine });
+    components.push({ type: 14, divider: true, spacing: 1 });
+  }
+
+  components.push({
+    type: 1,
+    components: [
+      {
+        type: 2,
+        style: 1,
+        label: "Add Role Item",
+        custom_id: "shoprole:add"
+      },
+      {
+        type: 2,
+        style: 2,
+        label: "Refresh",
+        custom_id: "shoprole:refresh"
+      }
+    ]
+  });
+
+  components.push({ type: 14, divider: true, spacing: 1 });
+
+  if (roleItems.length === 0) {
+    components.push({ type: 10, content: "No role shop items yet." });
+  } else {
+    for (let index = 0; index < roleItems.length; index += 1) {
+      const item = roleItems[index];
+      components.push({
+        type: 10,
+        content: `**${item.name}**\n${item.description}\nRole: <@&${item.roleId}> • Price: **${item.price} ${POINTS_EMOJI_RAW}**`
+      });
+      components.push({
+        type: 1,
+        components: [
+          {
+            type: 2,
+            style: 4,
+            label: "Delete",
+            custom_id: `shoprole:delete:${item.id}`
+          }
+        ]
+      });
+
+      if (index < roleItems.length - 1) {
+        components.push({ type: 14, divider: true, spacing: 1 });
+      }
+    }
+  }
+
+  return [{ type: 17, components }];
+}
+
+function buildSetupAdminPanel(guildId, statusLine = null) {
+  const roleIds = getAdminRoleIds(guildId);
+  const logsChannel = getLogsChannelIdForGuild(guildId);
+
+  const components = [
+    { type: 10, content: "## Setup Manager" },
+    { type: 10, content: "Manage admin roles and logs channel for this server." },
+    { type: 14, divider: true, spacing: 1 }
+  ];
+
+  if (statusLine) {
+    components.push({ type: 10, content: statusLine });
+    components.push({ type: 14, divider: true, spacing: 1 });
+  }
+
+  components.push({ type: 10, content: "### Admin Roles" });
+  if (roleIds.length === 0) {
+    components.push({ type: 10, content: `${BULLET_EMOJI_RAW} No admin roles configured.` });
+  } else {
+    for (const roleId of roleIds) {
+      components.push({ type: 10, content: `${BULLET_EMOJI_RAW} <@&${roleId}>` });
+    }
+  }
+
+  components.push({
+    type: 1,
+    components: [
+      {
+        type: 2,
+        style: 2,
+        label: "Add Admin Role",
+        custom_id: "setup:panel:add-admin-role"
+      },
+      {
+        type: 2,
+        style: 2,
+        label: "Remove Admin Role",
+        custom_id: "setup:panel:remove-admin-role"
+      }
+    ]
+  });
+
+  components.push({ type: 14, divider: true, spacing: 1 });
+  components.push({ type: 10, content: "### Logs Channel" });
+  components.push({
+    type: 10,
+    content: logsChannel
+      ? `${BULLET_EMOJI_RAW} Current: <#${logsChannel}>`
+      : `${BULLET_EMOJI_RAW} Current: Not set`
+  });
+  components.push({
+    type: 1,
+    components: [
+      {
+        type: 2,
+        style: 2,
+        label: "Set Logs Channel",
+        custom_id: "setup:panel:set-logs"
+      },
+      {
+        type: 2,
+        style: 2,
+        label: "Clear Logs Channel",
+        custom_id: "setup:panel:clear-logs"
+      },
+      {
+        type: 2,
+        style: 2,
+        label: "Refresh",
+        custom_id: "setup:panel:refresh"
+      }
+    ]
+  });
+
+  return [{ type: 17, components }];
+}
+
 function buildComponentsBox(title, lines = [], extraComponents = []) {
   const components = [];
+  const safeLines = (lines || []).filter((line) => typeof line === "string" && line.trim().length > 0);
   if (title) {
     components.push({ type: 10, content: `## ${title}` });
   }
-  if (lines.length > 0) {
+  if (safeLines.length > 0) {
     if (title) {
       components.push({ type: 14, divider: true, spacing: 1 });
     }
-    for (const line of lines) {
+    for (const line of safeLines) {
       components.push({ type: 10, content: line });
     }
   }
@@ -116,6 +1087,43 @@ function buildComponentsBox(title, lines = [], extraComponents = []) {
     components.push(...extraComponents);
   }
   return [{ type: 17, components }];
+}
+
+function formatRoleplayMessage(content) {
+  if (!content || typeof content !== "string") {
+    return content;
+  }
+
+  if (!content.includes('"')) {
+    return content;
+  }
+
+  const narrationToItalic = (segment) => {
+    return segment
+      .split("\n")
+      .map((line) => {
+        if (line.trim().length === 0) {
+          return line;
+        }
+
+        return line.replace(/^(\s*)(.*?)(\s*)$/, "$1*$2*$3");
+      })
+      .join("\n");
+  };
+
+  const parts = content.split(/("[^"\n]+")/g);
+  if (parts.length <= 1) {
+    return content;
+  }
+
+  return parts
+    .map((part) => {
+      if (part.startsWith('"') && part.endsWith('"')) {
+        return part;
+      }
+      return narrationToItalic(part);
+    })
+    .join("");
 }
 
 async function replyComponentsV2(interaction, title, lines, extraComponents, options = {}) {
@@ -169,18 +1177,795 @@ function logMessage(userId, characterName, message, channelId, guildId) {
   return logEntry;
 }
 
-function getCharacterById(characterId) {
-  return characters.find((character) => character.id === characterId);
+function isCharacterVisibleInGuild(character, guildId) {
+  if (!guildId) {
+    return false;
+  }
+  return character.guildId === guildId;
 }
 
-function getOwnedCharacters(userId) {
-  return characters.filter((character) => assignments[character.id] === userId);
+function getCharactersForGuild(guildId) {
+  return characters.filter((character) => isCharacterVisibleInGuild(character, guildId));
+}
+
+function getCharacterById(characterId, guildId) {
+  return getCharactersForGuild(guildId).find((character) => character.id === characterId);
+}
+
+function getScopeId(guildId) {
+  return guildId || "global";
+}
+
+function getAssignmentKey(guildId, characterId) {
+  return `${getScopeId(guildId)}:${characterId}`;
+}
+
+function getSelectionKey(guildId, userId) {
+  return `${getScopeId(guildId)}:${userId}`;
+}
+
+function getPointsKey(guildId, userId) {
+  return `${getScopeId(guildId)}:${userId}`;
+}
+
+function getCharacterPointsKey(guildId, characterId) {
+  return `${getScopeId(guildId)}:${characterId}`;
+}
+
+function getUserSlotsKey(guildId, userId) {
+  return `${getScopeId(guildId)}:${userId}`;
+}
+
+function getCharacterUpgradeKey(guildId, characterId) {
+  return `${getScopeId(guildId)}:${characterId}`;
+}
+
+function getAssignedUserId(guildId, characterId) {
+  return assignments[getAssignmentKey(guildId, characterId)];
+}
+
+function setAssignedUserId(guildId, characterId, userId) {
+  assignments[getAssignmentKey(guildId, characterId)] = userId;
+}
+
+function clearAssignedUserId(guildId, characterId) {
+  delete assignments[getAssignmentKey(guildId, characterId)];
+}
+
+function getSelectedCharacterId(guildId, userId) {
+  return selections[getSelectionKey(guildId, userId)];
+}
+
+function setSelectedCharacterId(guildId, userId, characterId) {
+  selections[getSelectionKey(guildId, userId)] = characterId;
+}
+
+function clearSelectedCharacterId(guildId, userId) {
+  delete selections[getSelectionKey(guildId, userId)];
+}
+
+function clearCharacterSelectionsInGuild(guildId, characterId) {
+  const scopeId = `${getScopeId(guildId)}:`;
+  for (const key of Object.keys(selections)) {
+    if (key.startsWith(scopeId) && selections[key] === characterId) {
+      delete selections[key];
+    }
+  }
+}
+
+function getOwnedCharacters(userId, guildId) {
+  return getCharactersForGuild(guildId).filter((character) => getAssignedUserId(guildId, character.id) === userId);
+}
+
+function getOwnedCharacterCount(guildId, userId) {
+  return getOwnedCharacters(userId, guildId).length;
+}
+
+function getUserCharacterSlotLimit(guildId, userId) {
+  const rawSlots = userSlots[getUserSlotsKey(guildId, userId)] || DEFAULT_CHARACTER_SLOTS;
+  return Math.min(MAX_CHARACTER_SLOTS, rawSlots);
+}
+
+function getNextSlotCost(currentSlots) {
+  const safeSlots = Number.isFinite(currentSlots) && currentSlots > 0 ? currentSlots : DEFAULT_CHARACTER_SLOTS;
+  return SLOT_BASE_COST + ((safeSlots - DEFAULT_CHARACTER_SLOTS) * SLOT_COST_STEP);
+}
+
+function increaseUserCharacterSlots(guildId, userId, amount = 1) {
+  if (!guildId || !userId || !Number.isFinite(amount) || amount <= 0) {
+    return;
+  }
+  const key = getUserSlotsKey(guildId, userId);
+  const currentSlots = getUserCharacterSlotLimit(guildId, userId);
+  userSlots[key] = Math.min(MAX_CHARACTER_SLOTS, currentSlots + amount);
+  upsertUserSlotsInDb(guildId, userId, userSlots[key]);
+  saveUserSlots();
+}
+
+function canAssignCharacterToUser(guildId, userId, characterId) {
+  const currentOwnerId = getAssignedUserId(guildId, characterId);
+  if (currentOwnerId === userId) {
+    return true;
+  }
+
+  const usedSlots = getOwnedCharacterCount(guildId, userId);
+  const slotLimit = getUserCharacterSlotLimit(guildId, userId);
+  return usedSlots < slotLimit;
+}
+
+function addPoints(guildId, userId, amount) {
+  if (!guildId || !userId || !Number.isFinite(amount) || amount <= 0) {
+    return;
+  }
+
+  const key = getPointsKey(guildId, userId);
+  points[key] = normalizePoints((points[key] || 0) + amount);
+  upsertUserPointsInDb(guildId, userId, points[key]);
+  savePoints();
+}
+
+function spendPoints(guildId, userId, amount) {
+  if (!guildId || !userId || !Number.isFinite(amount) || amount <= 0) {
+    return false;
+  }
+
+  const key = getPointsKey(guildId, userId);
+  const currentPoints = normalizePoints(points[key] || 0);
+  if (currentPoints < amount) {
+    return false;
+  }
+
+  points[key] = normalizePoints(currentPoints - amount);
+  upsertUserPointsInDb(guildId, userId, points[key]);
+  savePoints();
+  return true;
+}
+
+function shouldAwardPoints(cooldownMap, guildId, userId, cooldownMs) {
+  if (!guildId || !userId || !Number.isFinite(cooldownMs) || cooldownMs <= 0) {
+    return false;
+  }
+
+  const key = getPointsKey(guildId, userId);
+  const now = Date.now();
+  const lastAwardedAt = cooldownMap.get(key) || 0;
+
+  if (now - lastAwardedAt < cooldownMs) {
+    return false;
+  }
+
+  cooldownMap.set(key, now);
+  return true;
+}
+
+function normalizePoints(value) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return 0;
+  }
+  return Math.round(numericValue * 100) / 100;
+}
+
+function formatPoints(value) {
+  const normalized = normalizePoints(value);
+  if (Number.isInteger(normalized)) {
+    return `${normalized}`;
+  }
+  return normalized.toFixed(2).replace(/\.0+$/, "").replace(/(\.\d*[1-9])0+$/, "$1");
+}
+
+function formatPointsWithEmoji(value) {
+  return `${formatPoints(value)} ${POINTS_EMOJI_RAW}`;
+}
+
+function getRandomMessagePointsReward() {
+  const raw = MESSAGE_POINTS_MIN + Math.random() * (MESSAGE_POINTS_MAX - MESSAGE_POINTS_MIN);
+  return normalizePoints(raw);
+}
+
+function getUserPoints(guildId, userId) {
+  return normalizePoints(points[getPointsKey(guildId, userId)] || 0);
+}
+
+function addCharacterPoints(guildId, characterId, amount) {
+  if (!guildId || !characterId || !Number.isFinite(amount) || amount <= 0) {
+    return;
+  }
+
+  const key = getCharacterPointsKey(guildId, characterId);
+  characterPoints[key] = normalizePoints((characterPoints[key] || 0) + amount);
+  upsertCharacterPointsInDb(guildId, characterId, characterPoints[key]);
+  saveCharacterPoints();
+}
+
+function getCharacterPoints(guildId, characterId) {
+  return normalizePoints(characterPoints[getCharacterPointsKey(guildId, characterId)] || 0);
+}
+
+function spendCharacterPoints(guildId, characterId, amount) {
+  if (!guildId || !characterId || !Number.isFinite(amount) || amount <= 0) {
+    return false;
+  }
+
+  const key = getCharacterPointsKey(guildId, characterId);
+  const currentPoints = normalizePoints(characterPoints[key] || 0);
+  if (currentPoints < amount) {
+    return false;
+  }
+
+  characterPoints[key] = normalizePoints(currentPoints - amount);
+  upsertCharacterPointsInDb(guildId, characterId, characterPoints[key]);
+  saveCharacterPoints();
+  return true;
+}
+
+function getCharacterUpgradeIds(guildId, characterId) {
+  return characterUpgrades[getCharacterUpgradeKey(guildId, characterId)] || [];
+}
+
+function hasCharacterUpgrade(guildId, characterId, upgradeId) {
+  return getCharacterUpgradeIds(guildId, characterId).includes(upgradeId);
+}
+
+function addCharacterUpgrade(guildId, characterId, upgradeId) {
+  if (!guildId || !characterId || !upgradeId) {
+    return;
+  }
+
+  const key = getCharacterUpgradeKey(guildId, characterId);
+  const existing = new Set(characterUpgrades[key] || []);
+  existing.add(upgradeId);
+  characterUpgrades[key] = Array.from(existing);
+  addCharacterUpgradeInDb(guildId, characterId, upgradeId);
+  saveCharacterUpgrades();
+}
+
+function getCharacterPointsCooldownMs(guildId, characterId) {
+  if (hasCharacterUpgrade(guildId, characterId, "cooldown_boost")) {
+    return Math.max(1000, Math.floor(CHARACTER_POINTS_COOLDOWN_MS / 2));
+  }
+  return CHARACTER_POINTS_COOLDOWN_MS;
+}
+
+function getCharacterPointsReward(guildId, characterId) {
+  if (hasCharacterUpgrade(guildId, characterId, "character_wallet_boost")) {
+    return POINTS_PER_CHARACTER_MESSAGE + 1;
+  }
+  return POINTS_PER_CHARACTER_MESSAGE;
+}
+
+function shouldAwardCharacterPoints(guildId, userId, characterId, cooldownMs) {
+  if (!guildId || !userId || !characterId || !Number.isFinite(cooldownMs) || cooldownMs <= 0) {
+    return false;
+  }
+
+  const key = `${getPointsKey(guildId, userId)}:${characterId}`;
+  const now = Date.now();
+  const lastAwardedAt = characterPointsCooldowns.get(key) || 0;
+
+  if (now - lastAwardedAt < cooldownMs) {
+    return false;
+  }
+
+  characterPointsCooldowns.set(key, now);
+  return true;
+}
+
+function clearCharacterPoints(guildId, characterId) {
+  const key = getCharacterPointsKey(guildId, characterId);
+  delete characterPoints[key];
+  clearCharacterPointsInDb(guildId, characterId);
+}
+
+function clearCharacterUpgrades(guildId, characterId) {
+  const key = getCharacterUpgradeKey(guildId, characterId);
+  delete characterUpgrades[key];
+  clearCharacterUpgradesInDb(guildId, characterId);
+}
+
+function renameCharacterIdInGuild(guildId, oldCharacterId, newCharacterId) {
+  if (!guildId || !oldCharacterId || !newCharacterId || oldCharacterId === newCharacterId) {
+    return false;
+  }
+
+  const character = getCharacterById(oldCharacterId, guildId);
+  if (!character) {
+    return false;
+  }
+
+  const oldAssignmentKey = getAssignmentKey(guildId, oldCharacterId);
+  const newAssignmentKey = getAssignmentKey(guildId, newCharacterId);
+  if (Object.prototype.hasOwnProperty.call(assignments, oldAssignmentKey)) {
+    assignments[newAssignmentKey] = assignments[oldAssignmentKey];
+    delete assignments[oldAssignmentKey];
+  }
+
+  const scopePrefix = `${getScopeId(guildId)}:`;
+  for (const key of Object.keys(selections)) {
+    if (key.startsWith(scopePrefix) && selections[key] === oldCharacterId) {
+      selections[key] = newCharacterId;
+    }
+  }
+
+  const oldPointsKey = getCharacterPointsKey(guildId, oldCharacterId);
+  const newPointsKey = getCharacterPointsKey(guildId, newCharacterId);
+  const mergedCharacterPoints = normalizePoints((characterPoints[newPointsKey] || 0) + (characterPoints[oldPointsKey] || 0));
+
+  if (mergedCharacterPoints > 0) {
+    characterPoints[newPointsKey] = mergedCharacterPoints;
+    upsertCharacterPointsInDb(guildId, newCharacterId, mergedCharacterPoints);
+  } else {
+    delete characterPoints[newPointsKey];
+    clearCharacterPointsInDb(guildId, newCharacterId);
+  }
+
+  delete characterPoints[oldPointsKey];
+  clearCharacterPointsInDb(guildId, oldCharacterId);
+
+  const oldUpgradesKey = getCharacterUpgradeKey(guildId, oldCharacterId);
+  const newUpgradesKey = getCharacterUpgradeKey(guildId, newCharacterId);
+  const mergedUpgrades = Array.from(new Set([
+    ...(characterUpgrades[newUpgradesKey] || []),
+    ...(characterUpgrades[oldUpgradesKey] || [])
+  ]));
+
+  if (mergedUpgrades.length > 0) {
+    characterUpgrades[newUpgradesKey] = mergedUpgrades;
+  } else {
+    delete characterUpgrades[newUpgradesKey];
+  }
+
+  delete characterUpgrades[oldUpgradesKey];
+  clearCharacterUpgradesInDb(guildId, oldCharacterId);
+  clearCharacterUpgradesInDb(guildId, newCharacterId);
+  for (const upgradeId of mergedUpgrades) {
+    addCharacterUpgradeInDb(guildId, newCharacterId, upgradeId);
+  }
+
+  for (const channelId of Object.keys(webhooks)) {
+    if (!webhooks[channelId] || typeof webhooks[channelId] !== "object") {
+      continue;
+    }
+
+    if (webhooks[channelId][oldCharacterId]) {
+      if (!webhooks[channelId][newCharacterId]) {
+        webhooks[channelId][newCharacterId] = webhooks[channelId][oldCharacterId];
+      }
+      delete webhooks[channelId][oldCharacterId];
+    }
+  }
+
+  for (const [cooldownKey, value] of characterPointsCooldowns.entries()) {
+    if (cooldownKey.startsWith(scopePrefix) && cooldownKey.endsWith(`:${oldCharacterId}`)) {
+      const newCooldownKey = `${cooldownKey.slice(0, -oldCharacterId.length)}${newCharacterId}`;
+      characterPointsCooldowns.set(newCooldownKey, value);
+      characterPointsCooldowns.delete(cooldownKey);
+    }
+  }
+
+  character.id = newCharacterId;
+
+  writeJson(CHARACTERS_PATH, characters);
+  saveAssignments();
+  saveSelections();
+  saveCharacterPoints();
+  saveCharacterUpgrades();
+  saveWebhooks();
+  return true;
+}
+
+function getTopUserPoints(guildId, limit = 10) {
+  const scopePrefix = `${getScopeId(guildId)}:`;
+  return Object.entries(points)
+    .filter(([key, value]) => key.startsWith(scopePrefix) && Number.isFinite(value) && value > 0)
+    .map(([key, value]) => ({
+      userId: key.slice(scopePrefix.length),
+      points: value
+    }))
+    .sort((a, b) => b.points - a.points)
+    .slice(0, limit);
+}
+
+function getTopCharacterPoints(guildId, limit = 10) {
+  const scopePrefix = `${getScopeId(guildId)}:`;
+  return Object.entries(characterPoints)
+    .filter(([key, value]) => key.startsWith(scopePrefix) && Number.isFinite(value) && value > 0)
+    .map(([key, value]) => ({
+      characterId: key.slice(scopePrefix.length),
+      points: value
+    }))
+    .sort((a, b) => b.points - a.points)
+    .slice(0, limit);
+}
+
+function getShopItems(guildId, userId) {
+  const slotLimit = getUserCharacterSlotLimit(guildId, userId);
+  const nextSlotCost = getNextSlotCost(slotLimit);
+  const canBuySlot = slotLimit < MAX_CHARACTER_SLOTS;
+
+  const items = [
+    {
+      id: "slot",
+      name: "Character Slot +1",
+      description: canBuySlot
+        ? "Unlock one additional character slot for this server."
+        : `Maximum slots reached (${MAX_CHARACTER_SLOTS}/${MAX_CHARACTER_SLOTS}).`,
+      wallet: "User Wallet",
+      cost: canBuySlot ? nextSlotCost : "MAX",
+      available: canBuySlot,
+      emoji: SHOP_ITEM_EMOJI_RAW
+    }
+  ];
+
+  for (const upgrade of Object.values(CHARACTER_UPGRADE_DEFINITIONS)) {
+    items.push({
+      id: `upgrade:${upgrade.id}`,
+      name: upgrade.name,
+      description: upgrade.description,
+      wallet: "Character Wallet",
+      cost: upgrade.cost,
+      emoji: SHOP_ITEM_EMOJI_RAW
+    });
+  }
+
+  const roleItems = getShopRoleItemsForGuild(guildId);
+  for (const roleItem of roleItems) {
+    items.push({
+      id: `role:${roleItem.id}`,
+      name: roleItem.name,
+      description: roleItem.description,
+      wallet: "User Wallet",
+      cost: roleItem.price,
+      emoji: SHOP_ITEM_EMOJI_RAW
+    });
+  }
+
+  return items;
+}
+
+function getCurrencyEmojiForButton() {
+  const customEmojiMatch = CURRENCY_EMOJI_RAW.match(/^<(a?):([a-zA-Z0-9_]+):(\d+)>$/);
+  if (customEmojiMatch) {
+    return {
+      id: customEmojiMatch[3],
+      name: customEmojiMatch[2],
+      animated: customEmojiMatch[1] === "a"
+    };
+  }
+
+  return { name: CURRENCY_EMOJI_RAW || "🍬" };
+}
+
+function buildShopView(guildId, userId, page = 0, statusLine = null) {
+  const items = getShopItems(guildId, userId);
+  const totalPages = Math.max(1, Math.ceil(items.length / SHOP_PAGE_SIZE));
+  const safePage = Math.min(Math.max(page, 0), totalPages - 1);
+  const startIndex = safePage * SHOP_PAGE_SIZE;
+  const pageItems = items.slice(startIndex, startIndex + SHOP_PAGE_SIZE);
+
+  const selectedCharacterId = getSelectedCharacterId(guildId, userId);
+  const selectedCharacter = selectedCharacterId
+    ? getCharacterById(selectedCharacterId, guildId)
+    : null;
+  const hasValidPickedCharacter = Boolean(
+    selectedCharacter && getAssignedUserId(guildId, selectedCharacterId) === userId
+  );
+
+  const selectedCharacterLine = hasValidPickedCharacter
+    ? `**Picked Character:** ${selectedCharacter.name} (\`${selectedCharacterId}\`)`
+    : "**Picked Character:** None (use `/character pick`)";
+
+  const userWalletPoints = getUserPoints(guildId, userId);
+  const pickedCharacterPoints = hasValidPickedCharacter
+    ? getCharacterPoints(guildId, selectedCharacterId)
+    : null;
+
+  const components = [
+    { type: 10, content: "## Store" },
+    { type: 10, content: selectedCharacterLine },
+    {
+      type: 10,
+      content: "Click a price button to buy instantly. Slot purchases use your user wallet. **Upgrade purchases apply to the picked character shown above.**"
+    },
+    { type: 14, divider: true, spacing: 1 }
+  ];
+
+  if (statusLine) {
+    components.push({ type: 10, content: statusLine });
+    components.push({ type: 14, divider: true, spacing: 1 });
+  }
+
+  pageItems.forEach((item, index) => {
+    components.push({
+      type: 10,
+      content: `${item.emoji} **${item.name}**\n${item.description}\n**Wallet:** ${item.wallet}`
+    });
+
+    components.push({
+      type: 1,
+      components: [
+        {
+          type: 2,
+          style: 2,
+          custom_id: `shop:buy:${item.id}:${safePage}`,
+          label: `${item.cost}`,
+          emoji: typeof item.cost === "number" ? getCurrencyEmojiForButton() : undefined,
+          disabled: item.available === false
+        }
+      ]
+    });
+
+    if (index < pageItems.length - 1) {
+      components.push({ type: 14, divider: true, spacing: 1 });
+    }
+  });
+
+  components.push({ type: 14, divider: true, spacing: 1 });
+  components.push({
+    type: 10,
+    content: hasValidPickedCharacter
+      ? `**Wallets:** User ${Math.round(userWalletPoints)} ${POINTS_EMOJI_RAW} • Character ${Math.round(pickedCharacterPoints)} ${POINTS_EMOJI_RAW}`
+      : `**Wallets:** User ${Math.round(userWalletPoints)} ${POINTS_EMOJI_RAW} • Character N/A`
+  });
+  components.push({ type: 14, divider: true, spacing: 1 });
+  components.push({ type: 10, content: `Page ${safePage + 1}/${totalPages}` });
+
+  if (totalPages > 1) {
+    components.push({
+      type: 1,
+      components: [
+        {
+          type: 2,
+          style: 2,
+          custom_id: `shop:page:${safePage - 1}`,
+          label: "◀ Prev",
+          disabled: safePage <= 0
+        },
+        {
+          type: 2,
+          style: 2,
+          custom_id: `shop:page:${safePage + 1}`,
+          label: "Next ▶",
+          disabled: safePage >= totalPages - 1
+        }
+      ]
+    });
+  }
+
+  return {
+    components: [{ type: 17, components }],
+    page: safePage,
+    totalPages
+  };
+}
+
+function buildHelpView(guildId, userId, isAdmin, page = 0) {
+  const shopItems = guildId && userId
+    ? getShopItems(guildId, userId)
+    : [
+        {
+          name: "Character Slot +1",
+          wallet: "User Wallet",
+          cost: SLOT_BASE_COST,
+          emoji: SHOP_ITEM_EMOJI_RAW
+        },
+        ...Object.values(CHARACTER_UPGRADE_DEFINITIONS).map((upgrade) => ({
+          name: upgrade.name,
+          wallet: "Character Wallet",
+          cost: upgrade.cost,
+          emoji: SHOP_ITEM_EMOJI_RAW
+        }))
+      ];
+
+  const pages = [
+    {
+      title: "Help",
+      lines: [
+        "**Public Commands**",
+        `${BULLET_EMOJI_RAW} \`/character pick\` - Select your active character`,
+        `${BULLET_EMOJI_RAW} \`/character list\` - List your assigned characters`,
+        `${BULLET_EMOJI_RAW} \`/character profile\` - View character details`,
+        `${BULLET_EMOJI_RAW} \`/character edit\` - Edit your character info`,
+        `${BULLET_EMOJI_RAW} \`/character create-and-assign\` - Create and auto-assign a character`,
+        `${BULLET_EMOJI_RAW} \`/user profile\` - View a user profile`,
+        `${BULLET_EMOJI_RAW} \`/user edit\` - Edit your own profile`,
+        `${BULLET_EMOJI_RAW} \`/wallet\` - View user + character wallets`,
+        `${BULLET_EMOJI_RAW} \`/shop\` - Buy upgrades and other items`,
+        `${BULLET_EMOJI_RAW} \`/say\` - Speak as your selected character (optional image + reply_to message ID)`,
+        `${BULLET_EMOJI_RAW} \`/points\` - View points`,
+        `${BULLET_EMOJI_RAW} \`/leaderboard\` - View rankings`
+      ]
+    },
+    {
+      title: "Help • Shop",
+      lines: [
+        "Use `/shop` to buy items directly with buttons.",
+        "Slot purchases use your **User Wallet**.",
+        "Upgrade purchases use your **selected character wallet**.",
+        "",
+        "**Current Shop Items**",
+        ...shopItems.map(
+          (item) => `${BULLET_EMOJI_RAW} ${item.emoji} **${item.name}** — ${item.cost} ${CURRENCY_EMOJI_RAW} (${item.wallet})`
+        )
+      ]
+    }
+  ];
+
+  if (isAdmin) {
+    pages.push({
+      title: "Help • Admin",
+      lines: [
+        "**Admin Commands**",
+        `${BULLET_EMOJI_RAW} \`/character assign\` - Assign character ownership`,
+        `${BULLET_EMOJI_RAW} \`/character create\` / \`/character delete\` - Manage characters`,
+        `${BULLET_EMOJI_RAW} \`/character change-id\` - Change character IDs`,
+        `${BULLET_EMOJI_RAW} \`/admin user edit\` - Manage user profile + characters`,
+        `${BULLET_EMOJI_RAW} \`/setup panel\` - Manage admin roles + logs channel`,
+        `${BULLET_EMOJI_RAW} \`/setup setup-logs-channel\` - Quick set logs channel`,
+        `${BULLET_EMOJI_RAW} \`/setup add-points\` - Add user/character wallet points`,
+        `${BULLET_EMOJI_RAW} \`/setup add-role-shop-item\` - Add role item to shop`,
+        `${BULLET_EMOJI_RAW} \`/character clear-webhooks\` - Reset webhook cache`,
+        `${BULLET_EMOJI_RAW} \`/bot-say\` - Send a bot message`
+      ]
+    });
+  }
+
+  const totalPages = pages.length;
+  const safePage = Number.isFinite(page) ? Math.min(Math.max(page, 0), totalPages - 1) : 0;
+  const currentPage = pages[safePage];
+
+  const components = [{ type: 10, content: `## ${currentPage.title}` }];
+  const contentLines = currentPage.lines.filter((line) => typeof line === "string" && line.trim().length > 0);
+
+  if (contentLines.length > 0) {
+    components.push({ type: 14, divider: true, spacing: 1 });
+    for (const line of contentLines) {
+      components.push({ type: 10, content: line });
+    }
+  }
+
+  components.push({ type: 14, divider: true, spacing: 1 });
+  components.push({ type: 10, content: `Page ${safePage + 1}/${totalPages}` });
+  components.push({
+    type: 1,
+    components: [
+      {
+        type: 2,
+        style: 2,
+        custom_id: `help:page:${safePage - 1}`,
+        label: "◀ Prev",
+        disabled: safePage <= 0
+      },
+      {
+        type: 2,
+        style: 2,
+        custom_id: `help:page:${safePage + 1}`,
+        label: "Next ▶",
+        disabled: safePage >= totalPages - 1
+      }
+    ]
+  });
+
+  return {
+    components: [{ type: 17, components }],
+    page: safePage,
+    totalPages
+  };
+}
+
+function deleteCharacterFromGuild(guildId, characterId) {
+  const character = getCharacterById(characterId, guildId);
+  if (!character) {
+    return null;
+  }
+
+  const index = characters.indexOf(character);
+  if (index > -1) {
+    characters.splice(index, 1);
+    writeJson(CHARACTERS_PATH, characters);
+  }
+
+  if (getAssignedUserId(guildId, characterId)) {
+    clearAssignedUserId(guildId, characterId);
+    saveAssignments();
+  }
+
+  clearCharacterPoints(guildId, characterId);
+  saveCharacterPoints();
+  clearCharacterUpgrades(guildId, characterId);
+  saveCharacterUpgrades();
+  clearCharacterSelectionsInGuild(guildId, characterId);
+  saveSelections();
+
+  for (const channelId of Object.keys(webhooks)) {
+    if (webhooks[channelId]?.[characterId]) {
+      delete webhooks[channelId][characterId];
+    }
+  }
+  saveWebhooks();
+
+  return character;
+}
+
+function buildAdminUserEditPanel(guildId, targetUserId, statusLine = null) {
+  const targetDisplay = `<@${targetUserId}>`;
+  const userProfile = userProfiles[targetUserId] || {};
+  const ownedCharacters = getCharactersForGuild(guildId)
+    .filter((character) => getAssignedUserId(guildId, character.id) === targetUserId)
+    .sort((first, second) => first.name.localeCompare(second.name));
+
+  const components = [
+    { type: 10, content: "## Admin • User Edit" },
+    { type: 10, content: `**Target User:** ${targetDisplay}` },
+    { type: 14, divider: true, spacing: 1 }
+  ];
+
+  if (statusLine) {
+    components.push({ type: 10, content: statusLine });
+    components.push({ type: 14, divider: true, spacing: 1 });
+  }
+
+  components.push({ type: 10, content: "### User Profile" });
+  components.push({ type: 10, content: userProfile.nickname ? `${BULLET_EMOJI_RAW} **Nickname:** ${userProfile.nickname}` : `${BULLET_EMOJI_RAW} **Nickname:** _(not set)_` });
+  components.push({ type: 10, content: userProfile.about ? `${BULLET_EMOJI_RAW} **About:** ${userProfile.about}` : `${BULLET_EMOJI_RAW} **About:** _(not set)_` });
+  components.push({ type: 10, content: userProfile.interests ? `${BULLET_EMOJI_RAW} **Interests:** ${userProfile.interests}` : `${BULLET_EMOJI_RAW} **Interests:** _(not set)_` });
+  components.push({
+    type: 1,
+    components: [
+      {
+        type: 2,
+        style: 2,
+        label: "Edit Profile",
+        custom_id: `adm:u:pe:${targetUserId}`
+      },
+      {
+        type: 2,
+        style: 4,
+        label: "Delete Profile",
+        custom_id: `adm:u:pd:${targetUserId}`
+      }
+    ]
+  });
+
+  components.push({ type: 14, divider: true, spacing: 1 });
+  components.push({ type: 10, content: `### Characters (${ownedCharacters.length})` });
+
+  if (ownedCharacters.length === 0) {
+    components.push({ type: 10, content: "No characters assigned to this user." });
+  } else {
+    ownedCharacters.forEach((character, index) => {
+      components.push({ type: 10, content: `**${character.name}** (\`${character.id}\`)` });
+      components.push({
+        type: 1,
+        components: [
+          {
+            type: 2,
+            style: 2,
+            label: "Edit",
+            custom_id: `adm:u:ce:${targetUserId}:${character.id}`
+          },
+          {
+            type: 2,
+            style: 4,
+            label: "Delete",
+            custom_id: `adm:u:cd:${targetUserId}:${character.id}`
+          }
+        ]
+      });
+
+      if (index < ownedCharacters.length - 1) {
+        components.push({ type: 14, divider: true, spacing: 1 });
+      }
+    });
+  }
+
+  return [{ type: 17, components }];
 }
 
 async function registerCommands() {
   const token = process.env.DISCORD_TOKEN;
   const clientId = process.env.CLIENT_ID;
-  const guildId = process.env.GUILD_ID;
+  const commandGuildId = (process.env.COMMAND_GUILD_ID || "").trim();
 
   if (!token || !clientId) {
     throw new Error("DISCORD_TOKEN and CLIENT_ID must be set in the environment.");
@@ -195,7 +1980,16 @@ async function registerCommands() {
     .setName("character")
     .setDescription("Pick a character or assign one to a user")
     .addSubcommand((subcommand) =>
-      subcommand.setName("pick").setDescription("Pick your character")
+      subcommand
+        .setName("pick")
+        .setDescription("Pick your character")
+        .addStringOption((option) =>
+          option
+            .setName("character")
+            .setDescription("Character ID to pick")
+            .setRequired(true)
+            .setAutocomplete(true)
+        )
     )
     .addSubcommand((subcommand) =>
       subcommand
@@ -413,6 +2207,24 @@ async function registerCommands() {
     )
     .addSubcommand((subcommand) =>
       subcommand
+        .setName("change-id")
+        .setDescription("Change a character ID (admin only)")
+        .addStringOption((option) =>
+          option
+            .setName("character")
+            .setDescription("Current character ID")
+            .setRequired(true)
+            .setAutocomplete(true)
+        )
+        .addStringOption((option) =>
+          option
+            .setName("new-id")
+            .setDescription("New character ID (lowercase, no spaces)")
+            .setRequired(true)
+        )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
         .setName("profile")
         .setDescription("View character profile")
         .addStringOption((option) =>
@@ -456,6 +2268,27 @@ async function registerCommands() {
         .setDescription("Edit your user profile")
     );
 
+  const adminCommand = new SlashCommandBuilder()
+    .setName("admin")
+    .setDescription("Admin control commands")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommandGroup((group) =>
+      group
+        .setName("user")
+        .setDescription("Manage user profiles and characters")
+        .addSubcommand((subcommand) =>
+          subcommand
+            .setName("edit")
+            .setDescription("Open admin user edit panel")
+            .addUserOption((option) =>
+              option
+                .setName("user")
+                .setDescription("User to manage")
+                .setRequired(true)
+            )
+        )
+    );
+
   const sayCommand = new SlashCommandBuilder()
     .setName("say")
     .setDescription("Send a message as your selected character")
@@ -465,12 +2298,29 @@ async function registerCommands() {
         .setDescription("Message content")
         .setRequired(true)
         .setMaxLength(2000)
+    )
+    .addAttachmentOption((option) =>
+      option
+        .setName("image")
+        .setDescription("Optional image to include")
+        .setRequired(false)
+    )
+    .addStringOption((option) =>
+      option
+        .setName("reply_to")
+        .setDescription("Optional message ID to reply to")
+        .setRequired(false)
     );
 
   const setupCommand = new SlashCommandBuilder()
     .setName("setup")
     .setDescription("Configure bot settings (admin only)")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("panel")
+        .setDescription("Open setup manager panel")
+    )
     .addSubcommand((subcommand) =>
       subcommand
         .setName("setup-logs-channel")
@@ -482,6 +2332,46 @@ async function registerCommands() {
             .setRequired(true)
             .addChannelTypes(0, 5) // Text and News channels
         )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("add-points")
+        .setDescription("Add points to a user or character wallet")
+        .addStringOption((option) =>
+          option
+            .setName("wallet")
+            .setDescription("Wallet type")
+            .setRequired(true)
+            .addChoices(
+              { name: "User Wallet", value: "user" },
+              { name: "Character Wallet", value: "character" }
+            )
+        )
+        .addIntegerOption((option) =>
+          option
+            .setName("amount")
+            .setDescription("Points to add")
+            .setRequired(true)
+            .setMinValue(1)
+        )
+        .addUserOption((option) =>
+          option
+            .setName("user")
+            .setDescription("Target user (for user wallet)")
+            .setRequired(false)
+        )
+        .addStringOption((option) =>
+          option
+            .setName("character")
+            .setDescription("Target character ID (for character wallet)")
+            .setRequired(false)
+            .setAutocomplete(true)
+        )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("add-role-shop-item")
+        .setDescription("Open role shop item manager")
     );
 
   const botSayCommand = new SlashCommandBuilder()
@@ -507,18 +2397,83 @@ async function registerCommands() {
     .setName("help")
     .setDescription("View available commands");
 
-  const commands = [characterCommand.toJSON(), userCommand.toJSON(), sayCommand.toJSON(), setupCommand.toJSON(), botSayCommand.toJSON(), helpCommand.toJSON()];
+  const shopCommand = new SlashCommandBuilder()
+    .setName("shop")
+    .setDescription("View slot and upgrade shop prices");
+
+  const walletCommand = new SlashCommandBuilder()
+    .setName("wallet")
+    .setDescription("View user and character wallet details")
+    .addUserOption((option) =>
+      option
+        .setName("user")
+        .setDescription("User to view wallet for (admin only for others)")
+        .setRequired(false)
+    )
+    .addStringOption((option) =>
+      option
+        .setName("character")
+        .setDescription("Character ID (defaults to selected character)")
+        .setRequired(false)
+        .setAutocomplete(true)
+    );
+
+  const leaderboardCommand = new SlashCommandBuilder()
+    .setName("leaderboard")
+    .setDescription("View points leaderboard")
+    .addStringOption((option) =>
+      option
+        .setName("type")
+        .setDescription("Leaderboard type")
+        .setRequired(false)
+        .addChoices(
+          { name: "Users", value: "users" },
+          { name: "Characters", value: "characters" }
+        )
+    )
+    .addIntegerOption((option) =>
+      option
+        .setName("limit")
+        .setDescription("How many entries to show (1-25)")
+        .setRequired(false)
+        .setMinValue(1)
+        .setMaxValue(25)
+    );
+
+  const pointsCommand = new SlashCommandBuilder()
+    .setName("points")
+    .setDescription("View points")
+    .addUserOption((option) =>
+      option
+        .setName("user")
+        .setDescription("User to view points for")
+        .setRequired(false)
+    );
+
+  const commands = [
+    characterCommand.toJSON(),
+    userCommand.toJSON(),
+    adminCommand.toJSON(),
+    sayCommand.toJSON(),
+    setupCommand.toJSON(),
+    botSayCommand.toJSON(),
+    helpCommand.toJSON(),
+    shopCommand.toJSON(),
+    walletCommand.toJSON(),
+    leaderboardCommand.toJSON(),
+    pointsCommand.toJSON()
+  ];
   const rest = new REST({ version: "10" }).setToken(token);
 
   try {
-    if (guildId) {
-      await rest.put(Routes.applicationGuildCommands(clientId, guildId), {
+    if (commandGuildId) {
+      await rest.put(Routes.applicationGuildCommands(clientId, commandGuildId), {
         body: commands
       });
-      console.log("Registered guild commands.");
+      console.log(`Registered guild commands for ${commandGuildId}.`);
     } else {
       await rest.put(Routes.applicationCommands(clientId), { body: commands });
-      console.log("Registered global commands.");
+      console.log("Registered global commands for all servers.");
     }
   } catch (error) {
     console.error("Failed to register commands:", error);
@@ -526,30 +2481,30 @@ async function registerCommands() {
   }
 }
 
-async function ensureWebhook(channel, character, botMember) {
+async function ensureWebhook(channel, character, botMember, retryDepth = 0) {
+  if (retryDepth >= WEBHOOK_RECOVERY_MAX_ATTEMPTS) {
+    throw new Error("Maximum webhooks reached in this channel and no reusable cached webhook is available. Clear old webhooks or run /character clear-webhooks.");
+  }
+
   // For threads, we need to use the parent channel for webhooks
   const isThread = channel.isThread();
   const targetChannel = isThread ? channel.parent : channel;
   const channelId = targetChannel.id;
-  const entry = webhooks[channelId]?.[character.id];
+  const sharedKey = "__shared";
+  const entry = webhooks[channelId]?.[sharedKey];
 
-  // Try to validate cached webhook
   if (entry?.id && entry?.token) {
     try {
       const webhookClient = new WebhookClient({
         id: entry.id,
         token: entry.token
       });
-      // Test by fetching the webhook
       await webhookClient.fetch();
+      clearWebhookAutoDeleteTimer(entry.id);
       return entry;
     } catch (error) {
-      console.log(`Cached webhook invalid for ${character.id}, recreating...`);
-      // Delete invalid cached webhook
-      if (webhooks[channelId]) {
-        delete webhooks[channelId][character.id];
-        saveWebhooks();
-      }
+      clearWebhookAutoDeleteTimer(entry.id);
+      removeWebhookFromChannelCache(channelId, entry.id);
     }
   }
 
@@ -579,48 +2534,108 @@ async function ensureWebhook(channel, character, botMember) {
     );
   }
 
-  // Fetch existing webhooks to find one we can reuse
-  let webhook;
-  try {
-    const existingWebhooks = await targetChannel.fetchWebhooks();
-    // Find any webhook created by this bot
-    webhook = existingWebhooks.find((wh) => wh.owner?.id === botMember.id);
-    
-    if (webhook) {
-      console.log(`Reusing existing webhook in channel ${targetChannel.id}`);
-    } else {
-      // Create a new webhook only if we don't have one
-      webhook = await targetChannel.createWebhook({
-        name: "Character RP",
-        avatar: undefined
-      });
-      console.log(`Created new webhook in channel ${targetChannel.id}`);
-    }
-  } catch (error) {
-    if (error.code === 30007) {
-      // Maximum webhooks reached, try to reuse ANY webhook in the channel
-      const existingWebhooks = await channel.fetchWebhooks();
-      webhook = existingWebhooks.first();
-      if (!webhook) {
-        throw new Error("Maximum webhooks reached and no webhooks available to reuse.");
-      }
-      console.log(`Reusing any available webhook due to limit in channel ${channel.id}`);
-    } else {
-      throw error;
-    }
-  }
-
   if (!webhooks[channelId]) {
     webhooks[channelId] = {};
   }
 
-  webhooks[channelId][character.id] = {
-    id: webhook.id,
-    token: webhook.token
-  };
-  saveWebhooks();
+  let createdWebhook = null;
+  try {
+    createdWebhook = await targetChannel.createWebhook({
+      name: WEBHOOK_NAME_PREFIX,
+      avatar: undefined
+    });
+  } catch (error) {
+    if (error.code !== 30007) {
+      throw error;
+    }
+  }
 
-  return webhooks[channelId][character.id];
+  if (createdWebhook?.id && createdWebhook?.token) {
+    clearWebhookAutoDeleteTimer(createdWebhook.id);
+    webhooks[channelId][sharedKey] = {
+      id: createdWebhook.id,
+      token: createdWebhook.token
+    };
+    saveWebhooks();
+    return webhooks[channelId][sharedKey];
+  }
+
+  const channelEntries = webhooks[channelId] || {};
+  for (const cachedEntry of Object.values(channelEntries)) {
+    if (!cachedEntry?.id || !cachedEntry?.token) {
+      continue;
+    }
+
+    try {
+      const fallbackWebhookClient = new WebhookClient({
+        id: cachedEntry.id,
+        token: cachedEntry.token
+      });
+      await fallbackWebhookClient.fetch();
+      clearWebhookAutoDeleteTimer(cachedEntry.id);
+      webhooks[channelId][sharedKey] = {
+        id: cachedEntry.id,
+        token: cachedEntry.token
+      };
+      saveWebhooks();
+      return {
+        ...webhooks[channelId][sharedKey],
+        fallbackReuse: true
+      };
+    } catch (error) {
+      clearWebhookAutoDeleteTimer(cachedEntry.id);
+      removeWebhookFromChannelCache(channelId, cachedEntry.id);
+    }
+  }
+
+  try {
+    const fetchedWebhooks = await targetChannel.fetchWebhooks();
+    for (const webhook of fetchedWebhooks.values()) {
+      if (webhook.owner?.id !== botMember.id || !webhook.token) {
+        continue;
+      }
+
+      webhooks[channelId][sharedKey] = {
+        id: webhook.id,
+        token: webhook.token
+      };
+      saveWebhooks();
+      return {
+        ...webhooks[channelId][sharedKey],
+        fallbackReuse: true
+      };
+    }
+  } catch (error) {
+    // ignore fetch failure and retry cleanup path below
+  }
+
+  try {
+    const fetchedWebhooks = await targetChannel.fetchWebhooks();
+    let deletedBotWebhooks = 0;
+    for (const webhook of fetchedWebhooks.values()) {
+      if (webhook.owner?.id !== botMember.id) {
+        continue;
+      }
+
+      try {
+        await webhook.delete("Clearing stale bot-owned webhook to free slot.");
+        deletedBotWebhooks += 1;
+      } catch (deleteError) {
+        // ignore per-webhook delete failures
+      }
+
+      clearWebhookAutoDeleteTimer(webhook.id);
+      removeWebhookFromChannelCache(channelId, webhook.id);
+    }
+
+    if (deletedBotWebhooks > 0) {
+      return ensureWebhook(channel, character, botMember, retryDepth + 1);
+    }
+  } catch (cleanupError) {
+    // ignore cleanup failure
+  }
+
+  throw new Error("Maximum webhooks reached in this channel and no reusable cached webhook is available. Clear old webhooks or run /character clear-webhooks.");
 }
 
 // Generate Discord-style profile image
@@ -710,40 +2725,185 @@ async function generateProfileImage(character) {
 
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ]
 });
 
 client.once("ready", () => {
   console.log(`Logged in as ${client.user.tag}`);
+
+  const commandGuildId = (process.env.COMMAND_GUILD_ID || "").trim();
+  if (!commandGuildId) {
+    (async () => {
+      try {
+        const guilds = await client.guilds.fetch();
+        for (const [, guildRef] of guilds) {
+          try {
+            const guild = await guildRef.fetch();
+            await guild.commands.set([]);
+          } catch (error) {
+            console.error(`Failed to clear guild commands for ${guildRef.id}:`, error);
+          }
+        }
+        console.log("Cleared guild-specific commands (global mode).");
+      } catch (error) {
+        console.error("Failed to clear guild-specific commands:", error);
+      }
+    })();
+  }
 });
 
 client.on("interactionCreate", async (interaction) => {
   try {
+    const buildLeaderboardView = async (guild, type, limit, offset) => {
+      const safeLimit = Math.max(1, Math.min(25, Number(limit) || 10));
+      const safeOffset = Math.max(0, Number(offset) || 0);
+
+      if (type === "characters") {
+        const entries = getTopCharacterPoints(guild.id, 1000);
+        if (entries.length === 0) {
+          return {
+            title: "Character Leaderboard",
+            lines: ["No character points yet."],
+            extraComponents: []
+          };
+        }
+
+        const pageCount = Math.max(1, Math.ceil(entries.length / safeLimit));
+        const clampedOffset = Math.min(safeOffset, (pageCount - 1) * safeLimit);
+        const pageEntries = entries.slice(clampedOffset, clampedOffset + safeLimit);
+        const currentPage = Math.floor(clampedOffset / safeLimit) + 1;
+
+        const lines = pageEntries.map((entry, index) => {
+          const character = getCharacterById(entry.characterId, guild.id);
+          const characterName = character?.name || entry.characterId;
+          return `**${clampedOffset + index + 1}.** ${characterName} (\`${entry.characterId}\`) — **${formatPointsWithEmoji(entry.points)}**`;
+        });
+        lines.push(`Page **${currentPage}/${pageCount}**`);
+
+        const prevOffset = Math.max(0, clampedOffset - safeLimit);
+        const nextOffset = clampedOffset + safeLimit;
+        const extraComponents = [
+          {
+            type: 1,
+            components: [
+              {
+                type: 2,
+                style: 2,
+                custom_id: `leaderboard:characters:${prevOffset}:${safeLimit}`,
+                label: "◀ Prev",
+                disabled: clampedOffset === 0
+              },
+              {
+                type: 2,
+                style: 2,
+                custom_id: `leaderboard:characters:${nextOffset}:${safeLimit}`,
+                label: "Next ▶",
+                disabled: nextOffset >= entries.length
+              }
+            ]
+          }
+        ];
+
+        return {
+          title: "Character Leaderboard",
+          lines,
+          extraComponents
+        };
+      }
+
+      const entries = getTopUserPoints(guild.id, 1000);
+      if (entries.length === 0) {
+        return {
+          title: "User Leaderboard",
+          lines: ["No user points yet."],
+          extraComponents: []
+        };
+      }
+
+      const pageCount = Math.max(1, Math.ceil(entries.length / safeLimit));
+      const clampedOffset = Math.min(safeOffset, (pageCount - 1) * safeLimit);
+      const pageEntries = entries.slice(clampedOffset, clampedOffset + safeLimit);
+      const currentPage = Math.floor(clampedOffset / safeLimit) + 1;
+
+      const lines = [];
+      for (let index = 0; index < pageEntries.length; index += 1) {
+        const entry = pageEntries[index];
+        let userLabel = `<@${entry.userId}>`;
+        try {
+          const member = await guild.members.fetch(entry.userId);
+          userLabel = member.displayName;
+        } catch (error) {
+          // Keep mention fallback when member can't be fetched
+        }
+        lines.push(`**${clampedOffset + index + 1}.** ${userLabel} — **${formatPointsWithEmoji(entry.points)}**`);
+      }
+      lines.push(`Page **${currentPage}/${pageCount}**`);
+
+      const prevOffset = Math.max(0, clampedOffset - safeLimit);
+      const nextOffset = clampedOffset + safeLimit;
+      const extraComponents = [
+        {
+          type: 1,
+          components: [
+            {
+              type: 2,
+              style: 2,
+              custom_id: `leaderboard:users:${prevOffset}:${safeLimit}`,
+              label: "◀ Prev",
+              disabled: clampedOffset === 0
+            },
+            {
+              type: 2,
+              style: 2,
+              custom_id: `leaderboard:users:${nextOffset}:${safeLimit}`,
+              label: "Next ▶",
+              disabled: nextOffset >= entries.length
+            }
+          ]
+        }
+      ];
+
+      return {
+        title: "User Leaderboard",
+        lines,
+        extraComponents
+      };
+    };
+
     if (interaction.isAutocomplete()) {
       const subcommand = interaction.options.getSubcommand();
-      if (interaction.commandName === "character" && (subcommand === "assign" || subcommand === "remove" || subcommand === "edit" || subcommand === "delete" || subcommand === "profile")) {
+      if (interaction.commandName === "character" && (subcommand === "pick" || subcommand === "assign" || subcommand === "remove" || subcommand === "edit" || subcommand === "change-id" || subcommand === "delete" || subcommand === "profile")) {
         const focusedValue = interaction.options.getFocused(true);
         if (focusedValue.name === "character") {
           let choices;
           
           // For edit command, only show user's own characters (unless admin)
-          if (subcommand === "edit") {
+          if (subcommand === "pick") {
+            choices = getCharactersForGuild(interaction.guildId)
+              .filter((c) => getAssignedUserId(interaction.guildId, c.id) === interaction.user.id)
+              .map((c) => c.id)
+              .filter((id) => id.toLowerCase().includes(focusedValue.value.toLowerCase()));
+          } else if (subcommand === "edit") {
             const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
             if (isAdmin) {
               // Admins see all characters
-              choices = characters
+              choices = getCharactersForGuild(interaction.guildId)
                 .map((c) => c.id)
                 .filter((id) => id.toLowerCase().includes(focusedValue.value.toLowerCase()));
             } else {
               // Regular users see only their assigned characters
-              choices = characters
-                .filter((c) => assignments[c.id] === interaction.user.id)
+              choices = getCharactersForGuild(interaction.guildId)
+                .filter((c) => getAssignedUserId(interaction.guildId, c.id) === interaction.user.id)
                 .map((c) => c.id)
                 .filter((id) => id.toLowerCase().includes(focusedValue.value.toLowerCase()));
             }
           } else {
             // For other commands, show all characters
-            choices = characters
+            choices = getCharactersForGuild(interaction.guildId)
               .map((c) => c.id)
               .filter((id) => id.toLowerCase().includes(focusedValue.value.toLowerCase()));
           }
@@ -753,10 +2913,73 @@ client.on("interactionCreate", async (interaction) => {
           );
         }
       }
+
+      if (interaction.commandName === "setup" && subcommand === "add-points") {
+        const focusedValue = interaction.options.getFocused(true);
+        if (focusedValue.name === "character") {
+          const choices = getCharactersForGuild(interaction.guildId)
+            .map((character) => character.id)
+            .filter((id) => id.toLowerCase().includes(focusedValue.value.toLowerCase()));
+
+          await interaction.respond(
+            choices.slice(0, 25).map((choice) => ({ name: choice, value: choice }))
+          );
+        }
+      }
+
+      if (interaction.commandName === "wallet") {
+        const focusedValue = interaction.options.getFocused(true);
+        if (focusedValue.name === "character") {
+          const choices = getCharactersForGuild(interaction.guildId)
+            .map((character) => character.id)
+            .filter((id) => id.toLowerCase().includes(focusedValue.value.toLowerCase()));
+
+          await interaction.respond(
+            choices.slice(0, 25).map((choice) => ({ name: choice, value: choice }))
+          );
+        }
+      }
       return;
     }
 
     if (interaction.isChatInputCommand()) {
+      if (interaction.commandName === "admin") {
+        if (!interaction.inGuild()) {
+          await replyComponentsV2(
+            interaction,
+            "Admin",
+            ["This command can only be used in a server."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+          await replyComponentsV2(
+            interaction,
+            "Admin",
+            ["You do not have permission to use this command."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        const group = interaction.options.getSubcommandGroup(false);
+        const subcommand = interaction.options.getSubcommand();
+
+        if (group === "user" && subcommand === "edit") {
+          const targetUser = interaction.options.getUser("user", true);
+          await interaction.reply({
+            flags: 32768,
+            components: buildAdminUserEditPanel(interaction.guildId, targetUser.id),
+            ephemeral: true
+          });
+          return;
+        }
+      }
+
       if (interaction.commandName === "character") {
         const subcommand = interaction.options.getSubcommand();
 
@@ -774,7 +2997,18 @@ client.on("interactionCreate", async (interaction) => {
 
           const characterId = interaction.options.getString("character", true);
           const user = interaction.options.getUser("user", true);
-          const character = getCharacterById(characterId);
+          const character = getCharacterById(characterId, interaction.guildId);
+
+          if (user.bot) {
+            await replyComponentsV2(
+              interaction,
+              "Assign Character",
+              ["You cannot assign characters to bot accounts."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
 
           if (!character) {
             await replyComponentsV2(
@@ -787,7 +3021,24 @@ client.on("interactionCreate", async (interaction) => {
             return;
           }
 
-          assignments[characterId] = user.id;
+          if (!canAssignCharacterToUser(interaction.guildId, user.id, characterId)) {
+            const usedSlots = getOwnedCharacterCount(interaction.guildId, user.id);
+            const slotLimit = getUserCharacterSlotLimit(interaction.guildId, user.id);
+            await replyComponentsV2(
+              interaction,
+              "Assign Character",
+              [
+                `**${user.tag}** has no free character slots.`,
+                `Used slots: **${usedSlots}/${slotLimit}**`,
+                "They can buy more from `/shop`."
+              ],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          setAssignedUserId(interaction.guildId, characterId, user.id);
           saveAssignments();
 
           await replyComponentsV2(
@@ -795,48 +3046,51 @@ client.on("interactionCreate", async (interaction) => {
             "Character Assigned",
             [`Assigned **${character.name}** to **${user.tag}**.`],
             [],
-            { ephemeral: true, accentColor: COLORS.SUCCESS }
+            { ephemeral: true }
           );
           return;
         }
 
         if (subcommand === "pick") {
-          const ownedCharacters = getOwnedCharacters(interaction.user.id);
+          const characterId = interaction.options.getString("character", true);
+          const character = getCharacterById(characterId, interaction.guildId);
 
-          if (ownedCharacters.length === 0) {
+          if (!character) {
             await replyComponentsV2(
               interaction,
-              null,
-              ["You do not have any characters assigned. Ask an admin to assign one."],
+              "Character Pick",
+              [`Character with ID \`${characterId}\` does not exist.`],
               [],
               { ephemeral: true }
             );
             return;
           }
 
-          const pickComponents = [
-            { type: 10, content: "Choose your character from the menu below:" },
-            {
-              type: 1,
-              components: [
-                {
-                  type: 3,
-                  custom_id: "character_select",
-                  placeholder: "Select your character",
-                  options: ownedCharacters.slice(0, 25).map((character) => ({
-                    label: character.name,
-                    value: character.id
-                  }))
-                }
-              ]
-            }
-          ];
+          if (getAssignedUserId(interaction.guildId, characterId) !== interaction.user.id) {
+            await replyComponentsV2(
+              interaction,
+              "Character Pick",
+              ["You can only pick characters assigned to you."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
 
-          await interaction.reply({
-            flags: 32768,
-            components: [{ type: 17, components: pickComponents }],
-            ephemeral: true
-          });
+          setSelectedCharacterId(interaction.guildId, interaction.user.id, characterId);
+          saveSelections();
+
+          await replyComponentsV2(
+            interaction,
+            "Character Selected",
+            [
+              `Now using **${character.name}** (\`${character.id}\`).`,
+              "Use `/say` to roleplay as this character."
+            ],
+            [],
+            { ephemeral: true }
+          );
+          return;
         }
 
         if (subcommand === "clear-webhooks") {
@@ -885,6 +3139,8 @@ client.on("interactionCreate", async (interaction) => {
 
           webhooks = {};
           saveWebhooks();
+          clearAllWebhookAutoDeleteTimers();
+          webhookSlotCursorByChannel.clear();
 
           await replyComponentsV2(
             interaction,
@@ -952,7 +3208,7 @@ client.on("interactionCreate", async (interaction) => {
           }
 
           // Check if character already exists
-          if (characters.some((c) => c.id === characterId)) {
+          if (getCharacterById(characterId, interaction.guildId)) {
             await replyComponentsV2(
               interaction,
               "❗ Character Exists",
@@ -966,6 +3222,7 @@ client.on("interactionCreate", async (interaction) => {
           // Create new character
           const newCharacter = {
             id: characterId,
+            guildId: interaction.guildId || undefined,
             name: characterName,
             avatarUrl: avatarUrl,
             bio: bio,
@@ -987,7 +3244,7 @@ client.on("interactionCreate", async (interaction) => {
             "Character Created",
             [`Created character **${characterName}** with ID \`${characterId}\`.`],
             [],
-            { ephemeral: true, accentColor: COLORS.SUCCESS }
+            { ephemeral: true }
           );
         }
 
@@ -1037,7 +3294,7 @@ client.on("interactionCreate", async (interaction) => {
           }
 
           // Check if character already exists
-          if (characters.some((c) => c.id === characterId)) {
+          if (getCharacterById(characterId, interaction.guildId)) {
             await replyComponentsV2(
               interaction,
               "❗ Character Exists",
@@ -1048,9 +3305,26 @@ client.on("interactionCreate", async (interaction) => {
             return;
           }
 
+          if (!canAssignCharacterToUser(interaction.guildId, interaction.user.id, characterId)) {
+            const usedSlots = getOwnedCharacterCount(interaction.guildId, interaction.user.id);
+            const slotLimit = getUserCharacterSlotLimit(interaction.guildId, interaction.user.id);
+            await replyComponentsV2(
+              interaction,
+              "No Free Character Slots",
+              [
+                `You are using **${usedSlots}/${slotLimit}** slots.`,
+                "Buy another slot from `/shop` before creating and assigning a new character."
+              ],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
           // Create new character
           const newCharacter = {
             id: characterId,
+            guildId: interaction.guildId || undefined,
             name: characterName,
             avatarUrl: avatarUrl,
             bio: bio,
@@ -1065,7 +3339,7 @@ client.on("interactionCreate", async (interaction) => {
           characters.push(newCharacter);
           
           // Auto-assign to the user who created it
-          assignments[characterId] = interaction.user.id;
+          setAssignedUserId(interaction.guildId, characterId, interaction.user.id);
           
           // Save to file
           writeJson(CHARACTERS_PATH, characters);
@@ -1099,7 +3373,7 @@ client.on("interactionCreate", async (interaction) => {
           }
 
           // Check if character exists
-          const character = getCharacterById(characterId);
+          const character = getCharacterById(characterId, interaction.guildId);
           if (!character) {
             await replyComponentsV2(
               interaction,
@@ -1114,7 +3388,7 @@ client.on("interactionCreate", async (interaction) => {
           const targetUserId = targetUser?.id || interaction.user.id;
 
           // Check if character is assigned to target user
-          if (assignments[characterId] !== targetUserId) {
+          if (getAssignedUserId(interaction.guildId, characterId) !== targetUserId) {
             await replyComponentsV2(
               interaction,
               "Remove Character",
@@ -1125,12 +3399,12 @@ client.on("interactionCreate", async (interaction) => {
             return;
           }
 
-          delete assignments[characterId];
+          clearAssignedUserId(interaction.guildId, characterId);
           saveAssignments();
 
           // Also remove from selections if the target user had it selected
-          if (selections[targetUserId] === characterId) {
-            delete selections[targetUserId];
+          if (getSelectedCharacterId(interaction.guildId, targetUserId) === characterId) {
+            clearSelectedCharacterId(interaction.guildId, targetUserId);
             saveSelections();
           }
 
@@ -1140,7 +3414,7 @@ client.on("interactionCreate", async (interaction) => {
             "Assignment Removed",
             [`Removed assignment for **${character.name}** from ${targetName}.`],
             [],
-            { ephemeral: true, accentColor: COLORS.SUCCESS }
+            { ephemeral: true }
           );
         }
 
@@ -1162,7 +3436,7 @@ client.on("interactionCreate", async (interaction) => {
             }
           }
 
-          const ownedCharacters = characters.filter((c) => assignments[c.id] === targetUserId);
+          const ownedCharacters = getCharactersForGuild(interaction.guildId).filter((c) => getAssignedUserId(interaction.guildId, c.id) === targetUserId);
 
           if (ownedCharacters.length === 0) {
             const userDesc = targetUser ? `<@${targetUserId}>` : "you";
@@ -1211,7 +3485,7 @@ client.on("interactionCreate", async (interaction) => {
           const characterId = interaction.options.getString("character", true);
 
           // Check if character exists
-          const character = getCharacterById(characterId);
+          const character = getCharacterById(characterId, interaction.guildId);
           if (!character) {
             await replyComponentsV2(
               interaction,
@@ -1225,7 +3499,7 @@ client.on("interactionCreate", async (interaction) => {
 
           // Check permissions: admin OR character owner
           const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
-          const isOwner = assignments[characterId] === interaction.user.id;
+          const isOwner = getAssignedUserId(interaction.guildId, characterId) === interaction.user.id;
 
           if (!isAdmin && !isOwner) {
             await replyComponentsV2(
@@ -1274,9 +3548,95 @@ client.on("interactionCreate", async (interaction) => {
           });
         }
 
+        if (subcommand === "change-id") {
+          if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+            await replyComponentsV2(
+              interaction,
+              "Change Character ID",
+              ["You do not have permission to change character IDs."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          const characterId = interaction.options.getString("character", true).trim();
+          const newCharacterId = interaction.options.getString("new-id", true).toLowerCase().trim();
+          const character = getCharacterById(characterId, interaction.guildId);
+
+          if (!character) {
+            await replyComponentsV2(
+              interaction,
+              "Change Character ID",
+              [`Character with ID \`${characterId}\` does not exist.`],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          if (!/^[a-z0-9_-]+$/.test(newCharacterId)) {
+            await replyComponentsV2(
+              interaction,
+              "❗ Invalid Character ID",
+              ["Character ID must be lowercase letters, numbers, hyphens, or underscores only."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          if (newCharacterId === characterId) {
+            await replyComponentsV2(
+              interaction,
+              "Change Character ID",
+              ["Old and new character IDs are the same."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          if (getCharacterById(newCharacterId, interaction.guildId)) {
+            await replyComponentsV2(
+              interaction,
+              "❗ Character Exists",
+              [`Character with ID \`${newCharacterId}\` already exists.`],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          const renamed = renameCharacterIdInGuild(interaction.guildId, characterId, newCharacterId);
+          if (!renamed) {
+            await replyComponentsV2(
+              interaction,
+              "Change Character ID",
+              ["Failed to change character ID. Try again."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          await replyComponentsV2(
+            interaction,
+            "Character ID Updated",
+            [
+              `${BULLET_EMOJI_RAW} Character: **${character.name}**`,
+              `${BULLET_EMOJI_RAW} Old ID: \`${characterId}\``,
+              `${BULLET_EMOJI_RAW} New ID: \`${newCharacterId}\``
+            ],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
         if (subcommand === "profile") {
           const characterId = interaction.options.getString("character", true);
-          const character = getCharacterById(characterId);
+          const character = getCharacterById(characterId, interaction.guildId);
 
           if (!character) {
             await replyComponentsV2(
@@ -1293,13 +3653,13 @@ client.on("interactionCreate", async (interaction) => {
             interaction,
             character.name,
             [
-              character.bio ? `**Bio:** ${character.bio}` : "",
-              character.personality ? `**Personality:** ${character.personality}` : "",
-              character.backstory ? `**Backstory:** ${character.backstory}` : "",
-              character.age ? `**Age:** ${character.age}` : "",
-              character.race ? `**Race/Species:** ${character.race}` : "",
-              character.class ? `**Class:** ${character.class}` : "",
-              character.relationship ? `**Status:** ${character.relationship}` : ""
+              character.bio ? `${BULLET_EMOJI_RAW} **Bio:** ${character.bio}` : "",
+              character.personality ? `${BULLET_EMOJI_RAW} **Personality:** ${character.personality}` : "",
+              character.backstory ? `${BULLET_EMOJI_RAW} **Backstory:** ${character.backstory}` : "",
+              character.age ? `${BULLET_EMOJI_RAW} **Age:** ${character.age}` : "",
+              character.race ? `${BULLET_EMOJI_RAW} **Race/Species:** ${character.race}` : "",
+              character.class ? `${BULLET_EMOJI_RAW} **Class:** ${character.class}` : "",
+              character.relationship ? `${BULLET_EMOJI_RAW} **Status:** ${character.relationship}` : ""
             ].filter(line => line),
             []
           );
@@ -1320,7 +3680,7 @@ client.on("interactionCreate", async (interaction) => {
           const characterId = interaction.options.getString("character", true);
 
           // Check if character exists
-          const character = getCharacterById(characterId);
+          const character = getCharacterById(characterId, interaction.guildId);
           if (!character) {
             await replyComponentsV2(
               interaction,
@@ -1344,8 +3704,7 @@ client.on("interactionCreate", async (interaction) => {
                   type: 2,
                   style: 4,
                   label: "Confirm Delete",
-                  custom_id: "confirm_delete",
-                  emoji: { name: "🗑️" }
+                  custom_id: "confirm_delete"
                 },
                 {
                   type: 2,
@@ -1373,24 +3732,25 @@ client.on("interactionCreate", async (interaction) => {
           collector.on("collect", async (i) => {
             if (i.customId === "confirm_delete") {
               // Remove character
-              const index = characters.findIndex((c) => c.id === characterId);
+              const index = characters.indexOf(character);
               if (index > -1) {
                 characters.splice(index, 1);
                 writeJson(CHARACTERS_PATH, characters);
               }
 
               // Remove assignments
-              if (assignments[characterId]) {
-                delete assignments[characterId];
+              if (getAssignedUserId(interaction.guildId, characterId)) {
+                clearAssignedUserId(interaction.guildId, characterId);
                 saveAssignments();
               }
 
+              clearCharacterPoints(interaction.guildId, characterId);
+              saveCharacterPoints();
+              clearCharacterUpgrades(interaction.guildId, characterId);
+              saveCharacterUpgrades();
+
               // Remove from selections
-              for (const userId in selections) {
-                if (selections[userId] === characterId) {
-                  delete selections[userId];
-                }
-              }
+              clearCharacterSelectionsInGuild(interaction.guildId, characterId);
               saveSelections();
 
               // Log the deletion
@@ -1398,18 +3758,19 @@ client.on("interactionCreate", async (interaction) => {
               logMessage(interaction.user.id, `[ADMIN] Character Delete`, deleteLog, interaction.channelId, interaction.guildId);
 
               // Send log to logs channel if configured
+              const logsChannelId = getLogsChannelIdForGuild(interaction.guildId);
               if (logsChannelId) {
                 try {
                   const logsChannel = await interaction.client.channels.fetch(logsChannelId);
                   if (logsChannel?.isTextBased()) {
                     const actorName = interaction.user.username;
                     const deleteLogComponents = [
-                      { type: 10, content: `## Character Deleted` },
+                      { type: 10, content: `## <:success:1479234774861221898> Character Deleted` },
                       { type: 14, divider: true, spacing: 1 },
-                      { type: 10, content: `**Admin:** ${actorName}` },
-                      { type: 10, content: `**Character:** ${character.name} (\`${characterId}\`)` },
+                      { type: 10, content: `${BULLET_EMOJI_RAW} **Admin:** ${actorName}` },
+                      { type: 10, content: `${BULLET_EMOJI_RAW} **Character:** ${character.name} (\`${characterId}\`)` },
                       { type: 14, divider: true, spacing: 1 },
-                      { type: 10, content: `_${interaction.user.username}_ • ${new Date().toISOString()}` }
+                      { type: 10, content: `${BULLET_EMOJI_RAW} _${interaction.user.username}_ • ${new Date().toISOString()}` }
                     ];
                     await logsChannel.send({
                       flags: 32768,
@@ -1423,7 +3784,7 @@ client.on("interactionCreate", async (interaction) => {
               }
 
               const successComponents = [
-                { type: 10, content: "## Character Deleted ✅" },
+                { type: 10, content: "## Character Deleted <:success:1479234774861221898>" },
                 { type: 14, divider: true, spacing: 1 },
                 { type: 10, content: `Successfully deleted **${character.name}** (\`${characterId}\`).` }
               ];
@@ -1472,9 +3833,9 @@ client.on("interactionCreate", async (interaction) => {
           const userProfile = userProfiles[userId];
 
           const profileLines = userProfile ? [
-            userProfile.nickname ? `**Nickname:** ${userProfile.nickname}` : "",
-            userProfile.about ? `**About:** ${userProfile.about}` : "",
-            userProfile.interests ? `**Interests:** ${userProfile.interests}` : ""
+            userProfile.nickname ? `${BULLET_EMOJI_RAW} **Nickname:** ${userProfile.nickname}` : "",
+            userProfile.about ? `${BULLET_EMOJI_RAW} **About:** ${userProfile.about}` : "",
+            userProfile.interests ? `${BULLET_EMOJI_RAW} **Interests:** ${userProfile.interests}` : ""
           ].filter(line => line) : [];
 
           await replyComponentsV2(
@@ -1483,6 +3844,7 @@ client.on("interactionCreate", async (interaction) => {
             profileLines.length > 0 ? profileLines : ["No profile information set."],
             []
           );
+          return;
         }
 
         if (subcommand === "edit") {
@@ -1490,9 +3852,9 @@ client.on("interactionCreate", async (interaction) => {
           const userProfile = userProfiles[userId];
 
           const profileLines = userProfile ? [
-            userProfile.nickname ? `**Nickname:** ${userProfile.nickname}` : "",
-            userProfile.about ? `**About:** ${userProfile.about}` : "",
-            userProfile.interests ? `**Interests:** ${userProfile.interests}` : ""
+            userProfile.nickname ? `${BULLET_EMOJI_RAW} **Nickname:** ${userProfile.nickname}` : "",
+            userProfile.about ? `${BULLET_EMOJI_RAW} **About:** ${userProfile.about}` : "",
+            userProfile.interests ? `${BULLET_EMOJI_RAW} **Interests:** ${userProfile.interests}` : ""
           ].filter(line => line) : [];
 
           const editButton = {
@@ -1514,7 +3876,91 @@ client.on("interactionCreate", async (interaction) => {
             [editButton],
             { ephemeral: true }
           );
+          return;
         }
+      }
+
+      if (interaction.commandName === "wallet") {
+        if (!interaction.inGuild()) {
+          await replyComponentsV2(
+            interaction,
+            "Wallet",
+            ["This command can only be used in a server."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        const targetUser = interaction.options.getUser("user", false) || interaction.user;
+        const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
+        if (targetUser.id !== interaction.user.id && !isAdmin) {
+          await replyComponentsV2(
+            interaction,
+            "Wallet",
+            ["You do not have permission to view another user's wallet."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        const userId = targetUser.id;
+        const userPoints = getUserPoints(interaction.guildId, userId);
+        const slotLimit = getUserCharacterSlotLimit(interaction.guildId, userId);
+        const usedSlots = getOwnedCharacterCount(interaction.guildId, userId);
+
+        let characterId = interaction.options.getString("character", false)
+          || getSelectedCharacterId(interaction.guildId, userId);
+
+        const lines = [
+          `**User:** ${targetUser.tag}`,
+          `**User Points:** ${formatPointsWithEmoji(userPoints)}`,
+          `**Character Slots:** ${usedSlots}/${slotLimit}`
+        ];
+
+        const characterSectionLines = [];
+
+        if (!characterId) {
+          characterSectionLines.push("**Character Wallet:** None selected");
+          characterSectionLines.push("Use `/character pick` or pass `character` in `/wallet`.");
+        } else {
+          const character = getCharacterById(characterId, interaction.guildId);
+          if (!character) {
+            characterSectionLines.push("**Character Wallet:** Character not found");
+          } else {
+            const assignedUserId = getAssignedUserId(interaction.guildId, characterId);
+            if (!isAdmin && assignedUserId !== interaction.user.id) {
+              await replyComponentsV2(
+                interaction,
+                "Wallet",
+                ["You can only view character wallets for characters assigned to you."],
+                [],
+                { ephemeral: true }
+              );
+              return;
+            }
+
+            const walletPoints = getCharacterPoints(interaction.guildId, characterId);
+
+            characterSectionLines.push(`**Character:** ${character.name} (\`${characterId}\`)`);
+            characterSectionLines.push(`**Character Points:** ${formatPointsWithEmoji(walletPoints)}`);
+          }
+        }
+
+        const characterSectionComponents = characterSectionLines.map((line) => ({
+          type: 10,
+          content: line
+        }));
+
+        await replyComponentsV2(
+          interaction,
+          "Wallet",
+          lines,
+          characterSectionComponents,
+          { ephemeral: true }
+        );
+        return;
       }
 
       if (interaction.commandName === "say") {
@@ -1551,7 +3997,7 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
-        const selectedCharacterId = selections[interaction.user.id];
+        const selectedCharacterId = getSelectedCharacterId(interaction.guildId, interaction.user.id);
         if (!selectedCharacterId) {
           await editComponentsV2(
             interaction,
@@ -1562,7 +4008,7 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
-        if (assignments[selectedCharacterId] !== interaction.user.id) {
+        if (getAssignedUserId(interaction.guildId, selectedCharacterId) !== interaction.user.id) {
           await editComponentsV2(
             interaction,
             null,
@@ -1572,7 +4018,7 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
-        const character = getCharacterById(selectedCharacterId);
+        const character = getCharacterById(selectedCharacterId, interaction.guildId);
         if (!character) {
           await editComponentsV2(
             interaction,
@@ -1583,12 +4029,69 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
-        const message = interaction.options.getString("message", true);
+        const rawMessage = interaction.options.getString("message", true);
+        const message = formatRoleplayMessage(rawMessage);
+        const imageAttachment = interaction.options.getAttachment("image", false);
+        const replyToMessageIdRaw = interaction.options.getString("reply_to", false);
+        const replyToMessageId = typeof replyToMessageIdRaw === "string" ? replyToMessageIdRaw.trim() : "";
+        let referencedMessage = null;
+
+        if (replyToMessageId && !/^\d{17,20}$/.test(replyToMessageId)) {
+          await editComponentsV2(
+            interaction,
+            null,
+            [`${UNSUCCESSFUL_EMOJI_RAW} Reply message ID must be a valid Discord message ID.`],
+            []
+          );
+          return;
+        }
+
+        if (imageAttachment) {
+          const isImageContentType = typeof imageAttachment.contentType === "string"
+            && imageAttachment.contentType.toLowerCase().startsWith("image/");
+          const isImageByName = typeof imageAttachment.name === "string"
+            && /\.(png|jpe?g|gif|webp|bmp|tiff?|avif)$/i.test(imageAttachment.name);
+
+          if (!isImageContentType && !isImageByName) {
+            await editComponentsV2(
+              interaction,
+              null,
+              [`${UNSUCCESSFUL_EMOJI_RAW} The attachment must be an image file.`],
+              []
+            );
+            return;
+          }
+        }
+
+        if (replyToMessageId) {
+          referencedMessage = await withTimeout(
+            channel.messages.fetch(replyToMessageId),
+            10000,
+            "Reply target lookup timed out."
+          ).catch(() => null);
+          if (!referencedMessage) {
+            await editComponentsV2(
+              interaction,
+              null,
+              [`${UNSUCCESSFUL_EMOJI_RAW} Could not find that message in this channel/thread.`],
+              []
+            );
+            return;
+          }
+        }
 
         let webhookInfo;
         try {
-          const botMember = await interaction.guild.members.fetchMe();
-          webhookInfo = await ensureWebhook(channel, character, botMember);
+          const botMember = await withTimeout(
+            interaction.guild.members.fetchMe(),
+            10000,
+            "Bot member lookup timed out."
+          );
+          webhookInfo = await withTimeout(
+            ensureWebhook(channel, character, botMember),
+            12000,
+            "Webhook setup timed out."
+          );
         } catch (error) {
           console.error("Webhook setup failed:", error);
           await editComponentsV2(
@@ -1606,55 +4109,139 @@ client.on("interactionCreate", async (interaction) => {
             token: webhookInfo.token
           });
 
+          let outboundContent = message;
+          if (referencedMessage) {
+            const escapeLinkText = (text) => String(text || "").replace(/[\\\[\]\(\)]/g, "\\$&");
+            const stripSubtextPrefix = (text) => String(text || "")
+              .split("\n")
+              .map((line) => line.replace(/^\s*-#\s?/, ""))
+              .join("\n")
+              .trim();
+            let previewSourceMessage = referencedMessage;
+            let sourceText = stripSubtextPrefix(previewSourceMessage.content || previewSourceMessage.cleanContent || "");
+
+            if (/^↪\s/.test(sourceText)) {
+              const embeddedLinkMatch = sourceText.match(/https?:\/\/discord\.com\/channels\/(\d{17,20})\/(\d{17,20})\/(\d{17,20})/i);
+              if (embeddedLinkMatch) {
+                const linkedChannelId = embeddedLinkMatch[2];
+                const linkedMessageId = embeddedLinkMatch[3];
+                const linkedChannel =
+                  interaction.guild.channels.cache.get(linkedChannelId)
+                  || await withTimeout(
+                    interaction.guild.channels.fetch(linkedChannelId),
+                    8000,
+                    "Linked channel lookup timed out."
+                  ).catch(() => null);
+
+                if (linkedChannel?.isTextBased()) {
+                  const linkedMessage = await withTimeout(
+                    linkedChannel.messages.fetch(linkedMessageId),
+                    8000,
+                    "Linked message lookup timed out."
+                  ).catch(() => null);
+                  if (linkedMessage) {
+                    previewSourceMessage = linkedMessage;
+                    sourceText = stripSubtextPrefix(linkedMessage.content || linkedMessage.cleanContent || "");
+                  }
+                }
+              }
+            }
+
+            const replyAuthor = previewSourceMessage.author?.username || "unknown";
+
+            if (/^↪\s/.test(sourceText)) {
+              const originalHeaderText = sourceText;
+              const lines = sourceText.split("\n");
+              lines.shift();
+              while (lines[0] && /^https?:\/\/discord\.com\/channels\//i.test(lines[0].trim())) {
+                lines.shift();
+              }
+              const strippedBody = lines.join("\n").trim();
+
+              if (strippedBody) {
+                sourceText = strippedBody;
+              } else {
+                const markdownHeaderMatch = originalHeaderText.match(
+                  /^↪\s*\[Replying to [^:]+:\s*([^\]]*)\]\(https?:\/\/discord\.com\/channels\/[^)]+\)/i
+                );
+                const plainHeaderMatch = originalHeaderText.match(/^↪\s*Replying to [^:]+:\s*(.+)$/i);
+                sourceText = (markdownHeaderMatch?.[1] || plainHeaderMatch?.[1] || "").trim();
+              }
+            }
+
+            let fallbackText = "[no text]";
+            if (previewSourceMessage.attachments?.size) {
+              const firstAttachment = previewSourceMessage.attachments.first();
+              fallbackText = firstAttachment?.name
+                ? `[attachment: ${firstAttachment.name}]`
+                : "[attachment]";
+            } else if (previewSourceMessage.embeds?.length) {
+              fallbackText = "[embed]";
+            } else if (previewSourceMessage.stickers?.size) {
+              fallbackText = "[sticker]";
+            }
+
+            const normalizedPreviewSource = (sourceText || fallbackText).replace(/\s+/g, " ").trim();
+            const preview = normalizedPreviewSource.length > 50
+              ? `${normalizedPreviewSource.slice(0, 50).trimEnd()}...`
+              : normalizedPreviewSource;
+            const replyJumpUrl = `https://discord.com/channels/${interaction.guildId}/${referencedMessage.channelId}/${referencedMessage.id}`;
+            const safeAuthor = escapeLinkText(replyAuthor).slice(0, 40) || "unknown";
+            const safePreview = escapeLinkText(preview);
+            const replyHeader = `-# ↪ [Replying to ${safeAuthor}: ${safePreview}](${replyJumpUrl})\n`;
+
+            const formattedBody = outboundContent;
+
+            const allowedBodyLength = Math.max(0, 2000 - replyHeader.length);
+            const trimmedBody = formattedBody.length > allowedBodyLength
+              ? `${formattedBody.slice(0, Math.max(0, allowedBodyLength - 3)).trimEnd()}...`
+              : formattedBody;
+
+            outboundContent = `${replyHeader}${trimmedBody}`;
+          }
+
           const webhookOptions = {
-            content: message,
+            content: outboundContent,
             username: character.name,
             avatarURL: character.avatarUrl || undefined,
             allowedMentions: { parse: [] }
           };
+
+          if (imageAttachment?.url) {
+            webhookOptions.files = [imageAttachment.url];
+          }
 
           // If we're in a thread, specify the thread ID
           if (channel.isThread()) {
             webhookOptions.threadId = channel.id;
           }
 
-          await webhookClient.send(webhookOptions);
+          await withTimeout(
+            webhookClient.send(webhookOptions),
+            12000,
+            "Webhook send timed out."
+          );
+
+          addPoints(interaction.guildId, interaction.user.id, POINTS_PER_CHARACTER_MESSAGE);
+
+          const characterPointsCooldownMs = getCharacterPointsCooldownMs(interaction.guildId, selectedCharacterId);
+          if (shouldAwardCharacterPoints(interaction.guildId, interaction.user.id, selectedCharacterId, characterPointsCooldownMs)) {
+            const characterReward = getCharacterPointsReward(interaction.guildId, selectedCharacterId);
+            addCharacterPoints(interaction.guildId, selectedCharacterId, characterReward);
+          }
 
           // Log the message
           logMessage(interaction.user.id, character.name, message, interaction.channelId, interaction.guildId);
 
-          // Send log to logs channel if configured
-          if (logsChannelId) {
-            try {
-              const logsChannel = await interaction.client.channels.fetch(logsChannelId);
-              if (logsChannel?.isTextBased()) {
-                const actorName = interaction.user.username;
-                const messageLogComponents = [
-                  { type: 10, content: `## Message Sent` },
-                  { type: 14, divider: true, spacing: 1 },
-                  { type: 10, content: `**User:** ${actorName}` },
-                  { type: 10, content: `**Character:** ${character.name}` },
-                  { type: 10, content: `**Channel:** <#${interaction.channelId}>` },
-                  { type: 14, divider: false, spacing: 1 },
-                  { type: 10, content: `**Message:**\n${message.substring(0, 1900) || "_(empty)_"}` },
-                  { type: 14, divider: true, spacing: 1 },
-                  { type: 10, content: `_${interaction.user.username}_ • ${new Date().toISOString()}` }
-                ];
-                await logsChannel.send({
-                  flags: 32768,
-                  components: [{ type: 17, components: messageLogComponents }],
-                  allowedMentions: { parse: [] }
-                });
-              }
-            } catch (logError) {
-              console.error("Failed to send log to logs channel:", logError);
-            }
-          }
-
           await editComponentsV2(
             interaction,
             null,
-            [`Sent as **${character.name}**.`],
+            [
+              `Sent as **${character.name}**.` +
+                (webhookInfo.fallbackReuse
+                  ? " Reused an existing webhook in this channel because the webhook limit is full."
+                  : "")
+            ],
             []
           );
         } catch (error) {
@@ -1663,7 +4250,7 @@ client.on("interactionCreate", async (interaction) => {
             await editComponentsV2(
               interaction,
               null,
-              ["Failed to send the message using the webhook."],
+              [`Failed to send the message using the webhook. ${error?.message || ""}`.trim()],
               []
             );
           } catch (replyError) {
@@ -1672,8 +4259,76 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
+      if (interaction.commandName === "leaderboard") {
+        if (!interaction.inGuild()) {
+          await replyComponentsV2(
+            interaction,
+            "Leaderboard",
+            ["This command can only be used in a server."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        const type = interaction.options.getString("type", false) || "users";
+        const limit = interaction.options.getInteger("limit", false) || 10;
+        const view = await buildLeaderboardView(interaction.guild, type, limit, 0);
+
+        await replyComponentsV2(
+          interaction,
+          view.title,
+          view.lines,
+          view.extraComponents
+        );
+      }
+
+      if (interaction.commandName === "points") {
+        if (!interaction.inGuild()) {
+          await replyComponentsV2(
+            interaction,
+            "Points",
+            ["This command can only be used in a server."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        const targetUser = interaction.options.getUser("user", false) || interaction.user;
+        const userId = targetUser.id;
+        const userPoints = getUserPoints(interaction.guildId, userId);
+        const selectedCharacterId = getSelectedCharacterId(interaction.guildId, userId);
+
+        const lines = [
+          `**User Points:** ${formatPointsWithEmoji(userPoints)}`
+        ];
+
+        if (selectedCharacterId) {
+          const selectedCharacter = getCharacterById(selectedCharacterId, interaction.guildId);
+          const selectedCharacterPoints = getCharacterPoints(interaction.guildId, selectedCharacterId);
+          const selectedCharacterName = selectedCharacter?.name || selectedCharacterId;
+          lines.push(`**Selected Character:** ${selectedCharacterName}`);
+          lines.push(`**Character Points:** ${formatPointsWithEmoji(selectedCharacterPoints)}`);
+        } else {
+          lines.push("**Selected Character:** None");
+          lines.push("Use `/character pick` to track character points on `/say`.");
+        }
+
+        lines.push("");
+        lines.push(`Earn **${MESSAGE_POINTS_MIN}-${MESSAGE_POINTS_MAX} ${POINTS_EMOJI_RAW}** per normal message and **${POINTS_PER_CHARACTER_MESSAGE} ${POINTS_EMOJI_RAW}** per \`/say\`.`);
+
+        await replyComponentsV2(
+          interaction,
+          `${targetUser.username}'s Points`,
+          lines,
+          [],
+          { ephemeral: true }
+        );
+      }
+
       if (interaction.commandName === "setup") {
-        if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+        if (!hasAdminAccess(interaction)) {
           await replyComponentsV2(
             interaction,
             "Setup",
@@ -1685,6 +4340,15 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         const subcommand = interaction.options.getSubcommand();
+
+        if (subcommand === "panel") {
+          await interaction.reply({
+            flags: 32768,
+            components: buildSetupAdminPanel(interaction.guildId),
+            ephemeral: true
+          });
+          return;
+        }
 
         if (subcommand === "setup-logs-channel") {
           const channel = interaction.options.getChannel("channel", true);
@@ -1700,8 +4364,7 @@ client.on("interactionCreate", async (interaction) => {
             return;
           }
 
-          logsChannelId = channel.id;
-          saveLogsChannel();
+          setLogsChannelIdForGuild(interaction.guildId, channel.id);
 
           await replyComponentsV2(
             interaction,
@@ -1710,88 +4373,113 @@ client.on("interactionCreate", async (interaction) => {
             [],
             { ephemeral: true }
           );
+          return;
         }
-      }
 
-      if (interaction.commandName === "help") {
-        const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
+        if (subcommand === "add-points") {
+          const walletType = interaction.options.getString("wallet", true);
+          const amount = interaction.options.getInteger("amount", true);
 
-        const publicCommands = [
-          { name: "/character pick", desc: "Select your active character" },
-          { name: "/character profile [character]", desc: "View character details" },
-          { name: "/character remove [character]", desc: "Remove character assignment" },
-          { name: "/character list", desc: "List your assigned characters" },
-          { name: "/character edit [character]", desc: "Edit your character info" },
-          { name: "/character create-and-assign", desc: "Create and auto-assign a character" },
-          { name: "/user profile [user]", desc: "View user profile" },
-          { name: "/user edit", desc: "Edit your profile" },
-          { name: "/say [message]", desc: "Send message as your character" }
-        ];
+          if (walletType === "user") {
+            const targetUser = interaction.options.getUser("user", false) || interaction.user;
 
-        const adminCommands = [
-          { name: "/character assign [character] [user]", desc: "Assign character to user" },
-          { name: "/character create [options]", desc: "Create character (admin only)" },
-          { name: "/character delete [character]", desc: "Delete character" },
-          { name: "/character clear-webhooks", desc: "Clear webhook cache" },
-          { name: "/setup setup-logs-channel [channel]", desc: "Set logging channel" },
-          { name: "/bot-say [message] [channel]", desc: "Send message as bot" }
-        ];
-
-        const buildHelpEmbed = (type) => {
-          const commands = type === "public" ? publicCommands : adminCommands;
-          const title = type === "public" ? "Public Commands" : "Admin Commands";
-          
-          const components = [
-            { type: 10, content: `## ${title}` },
-            { type: 14 } // Divider
-          ];
-
-          commands.forEach((cmd, index) => {
-            components.push({ type: 10, content: `**${cmd.name}**\n${cmd.desc}` });
-            if (index < commands.length - 1) {
-              components.push({ type: 14 }); // Divider between commands
+            if (targetUser.bot) {
+              await replyComponentsV2(
+                interaction,
+                "Add Points",
+                ["You cannot add points to bot accounts."],
+                [],
+                { ephemeral: true }
+              );
+              return;
             }
-          });
 
-          // Add navigation buttons
-          if (type === "public" && isAdmin) {
-            components.push({ type: 14 }); // Divider
-            components.push({
-              type: 1,
-              components: [
-                {
-                  type: 2,
-                  style: 1,
-                  custom_id: "help_admin",
-                  label: "▶ Admin Commands"
-                }
-              ]
-            });
-          } else if (type === "admin") {
-            components.push({ type: 14 }); // Divider
-            components.push({
-              type: 1,
-              components: [
-                {
-                  type: 2,
-                  style: 1,
-                  custom_id: "help_public",
-                  label: "◀ Public Commands"
-                }
-              ]
-            });
+            addPoints(interaction.guildId, targetUser.id, amount);
+            const newTotal = getUserPoints(interaction.guildId, targetUser.id);
+
+            await replyComponentsV2(
+              interaction,
+              "User Wallet Updated",
+              [
+                `Added **${amount}** points to **${targetUser.tag}**.`,
+                `New user wallet total: **${formatPointsWithEmoji(newTotal)}**`
+              ],
+              [],
+              { ephemeral: true }
+            );
+            return;
           }
 
-          return components;
-        };
+          if (walletType === "character") {
+            const characterId = interaction.options.getString("character", false);
+            if (!characterId) {
+              await replyComponentsV2(
+                interaction,
+                "Add Points",
+                ["For character wallet updates, provide the `character` option."],
+                [],
+                { ephemeral: true }
+              );
+              return;
+            }
 
-        const initialComponents = buildHelpEmbed("public");
-        
-        await interaction.reply({
-          flags: 32768,
-          components: [{ type: 17, components: initialComponents }],
-          ephemeral: true
-        });
+            const character = getCharacterById(characterId, interaction.guildId);
+            if (!character) {
+              await replyComponentsV2(
+                interaction,
+                "Add Points",
+                ["That character does not exist."],
+                [],
+                { ephemeral: true }
+              );
+              return;
+            }
+
+            addCharacterPoints(interaction.guildId, characterId, amount);
+            const newTotal = getCharacterPoints(interaction.guildId, characterId);
+
+            await replyComponentsV2(
+              interaction,
+              "Character Wallet Updated",
+              [
+                `Added **${amount}** points to **${character.name}** (\`${characterId}\`).`,
+                `New character wallet total: **${formatPointsWithEmoji(newTotal)}**`
+              ],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          await replyComponentsV2(
+            interaction,
+            "Add Points",
+            ["Invalid wallet type."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        if (subcommand === "add-role-shop-item") {
+          if (!interaction.inGuild()) {
+            await replyComponentsV2(
+              interaction,
+              "Setup",
+              ["This command can only be used in a server."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          await interaction.reply({
+            flags: 32768,
+            components: buildRoleShopAdminPanel(interaction.guildId),
+            ephemeral: true
+          });
+          return;
+        }
       }
 
       if (interaction.commandName === "bot-say") {
@@ -1806,6 +4494,17 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
+        if (!interaction.inGuild()) {
+          await replyComponentsV2(
+            interaction,
+            "Bot Say",
+            ["This command can only be used in a server."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
         const message = interaction.options.getString("message", true);
         const targetChannel = interaction.options.getChannel("channel", false) || interaction.channel;
 
@@ -1813,81 +4512,775 @@ client.on("interactionCreate", async (interaction) => {
           await replyComponentsV2(
             interaction,
             "Bot Say",
-            ["The target channel must be a text-based channel."],
+            ["Target channel must be text-based."],
             [],
             { ephemeral: true }
           );
           return;
         }
 
-        try {
-          await targetChannel.send({
-            content: message
-          });
+        await targetChannel.send({
+          content: message,
+          allowedMentions: { parse: [] }
+        });
 
+        await replyComponentsV2(
+          interaction,
+          "Bot Say",
+          ["Message sent."],
+          [],
+          { ephemeral: true }
+        );
+        return;
+      }
+
+      if (interaction.commandName === "shop") {
+        if (!interaction.inGuild()) {
           await replyComponentsV2(
             interaction,
-            "Bot Say",
-            [`Message sent to <#${targetChannel.id}>.`],
+            "Shop",
+            ["This command can only be used in a server."],
             [],
             { ephemeral: true }
           );
-        } catch (error) {
-          console.error("Failed to send bot message:", error);
-          await replyComponentsV2(
-            interaction,
-            "Bot Say",
-            ["Failed to send the message. Check bot permissions."],
-            [],
-            { ephemeral: true }
-          );
+          return;
         }
-      }
-    }
 
-    if (interaction.isStringSelectMenu()) {
-      if (interaction.customId !== "character_select") {
+        const shopView = buildShopView(interaction.guildId, interaction.user.id, 0);
+        await interaction.reply({
+          flags: 32768,
+          components: shopView.components,
+          ephemeral: true
+        });
         return;
       }
 
-      const characterId = interaction.values[0];
-      const character = getCharacterById(characterId);
-
-      if (!character) {
-        await replyComponentsV2(
-          interaction,
-          "Select Character",
-          ["That character does not exist."],
-          [],
-          { ephemeral: true }
-        );
+      if (interaction.commandName === "help") {
+        const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
+        const helpView = buildHelpView(interaction.guildId, interaction.user.id, isAdmin, 0);
+        await interaction.reply({
+          flags: 32768,
+          components: helpView.components,
+          ephemeral: true
+        });
         return;
       }
 
-      if (assignments[characterId] !== interaction.user.id) {
-        await replyComponentsV2(
-          interaction,
-          "Select Character",
-          ["You are not assigned to that character."],
-          [],
-          { ephemeral: true }
-        );
-        return;
-      }
-
-      selections[interaction.user.id] = characterId;
-      saveSelections();
-
-      await replyComponentsV2(
-        interaction,
-        null,
-        [`Selected **${character.name}**.`],
-        [],
-        { ephemeral: true }
-      );
     }
 
     if (interaction.isButton()) {
+      if (interaction.customId.startsWith("adm:u:")) {
+        if (!interaction.inGuild()) {
+          await interaction.reply({
+            content: "This button only works in a server.",
+            flags: 32768,
+            ephemeral: true
+          });
+          return;
+        }
+
+        if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+          await interaction.reply({
+            content: "You do not have permission to use this panel.",
+            flags: 32768,
+            ephemeral: true
+          });
+          return;
+        }
+
+        const parts = interaction.customId.split(":");
+        const action = parts[2];
+        const targetUserId = parts[3];
+        const characterId = parts[4];
+
+        if (action === "pe") {
+          const userProfile = userProfiles[targetUserId] || {};
+          const modal = {
+            title: "Admin Edit User Profile",
+            custom_id: `adm:u:pm:${targetUserId}`,
+            components: [
+              {
+                type: 1,
+                components: [
+                  {
+                    type: 4,
+                    custom_id: "nickname",
+                    style: 1,
+                    label: "Nickname",
+                    placeholder: "Leave empty to keep current value",
+                    value: userProfile.nickname || "",
+                    required: false,
+                    max_length: 100
+                  }
+                ]
+              },
+              {
+                type: 1,
+                components: [
+                  {
+                    type: 4,
+                    custom_id: "about",
+                    style: 2,
+                    label: "About",
+                    placeholder: "Leave empty to keep current value",
+                    value: userProfile.about || "",
+                    required: false,
+                    max_length: 300
+                  }
+                ]
+              },
+              {
+                type: 1,
+                components: [
+                  {
+                    type: 4,
+                    custom_id: "interests",
+                    style: 2,
+                    label: "Interests",
+                    placeholder: "Leave empty to keep current value",
+                    value: userProfile.interests || "",
+                    required: false,
+                    max_length: 200
+                  }
+                ]
+              }
+            ]
+          };
+
+          await interaction.showModal(modal);
+          return;
+        }
+
+        if (action === "pd") {
+          await interaction.update({
+            flags: 32768,
+            components: buildComponentsBox(
+              "Delete User Profile",
+              [
+                `Are you sure you want to delete <@${targetUserId}>'s profile?`,
+                "This action cannot be undone."
+              ],
+              [
+                {
+                  type: 1,
+                  components: [
+                    {
+                      type: 2,
+                      style: 4,
+                      label: "Confirm Delete",
+                      custom_id: `adm:u:pdc:${targetUserId}`
+                    },
+                    {
+                      type: 2,
+                      style: 2,
+                      label: "Cancel",
+                      custom_id: `adm:u:pdx:${targetUserId}`
+                    }
+                  ]
+                }
+              ]
+            )
+          });
+          return;
+        }
+
+        if (action === "pdc") {
+          delete userProfiles[targetUserId];
+          saveUserProfiles();
+
+          await interaction.update({
+            flags: 32768,
+            components: buildAdminUserEditPanel(
+              interaction.guildId,
+              targetUserId,
+              `<:success:1479234774861221898> Deleted profile for <@${targetUserId}>.`
+            )
+          });
+          return;
+        }
+
+        if (action === "pdx") {
+          await interaction.update({
+            flags: 32768,
+            components: buildAdminUserEditPanel(
+              interaction.guildId,
+              targetUserId,
+              `${UNSUCCESSFUL_EMOJI_RAW} Profile deletion cancelled.`
+            )
+          });
+          return;
+        }
+
+        if (action === "ce") {
+          const character = getCharacterById(characterId, interaction.guildId);
+          if (!character) {
+            await interaction.update({
+              flags: 32768,
+              components: buildAdminUserEditPanel(
+                interaction.guildId,
+                targetUserId,
+                `${UNSUCCESSFUL_EMOJI_RAW} Character \`${characterId}\` no longer exists.`
+              )
+            });
+            return;
+          }
+
+          const editBoxComponents = [
+            { type: 10, content: `## Edit ${character.name}` },
+            { type: 14, divider: true, spacing: 1 },
+            { type: 10, content: "Choose which section you want to edit." },
+            {
+              type: 1,
+              components: [
+                {
+                  type: 2,
+                  style: 2,
+                  label: "Edit Basic Info",
+                  custom_id: `edit_basic_${characterId}`
+                },
+                {
+                  type: 2,
+                  style: 2,
+                  label: "Edit More Fields",
+                  custom_id: `edit_more_${characterId}`
+                },
+                {
+                  type: 2,
+                  style: 2,
+                  label: "Edit Media",
+                  custom_id: `edit_media_${characterId}`
+                }
+              ]
+            }
+          ];
+
+          await interaction.update({
+            flags: 32768,
+            components: [{ type: 17, components: editBoxComponents }]
+          });
+          return;
+        }
+
+        if (action === "cd") {
+          await interaction.update({
+            flags: 32768,
+            components: buildComponentsBox(
+              "Delete Character",
+              [
+                `Are you sure you want to delete character \`${characterId}\`?`,
+                "This action cannot be undone."
+              ],
+              [
+                {
+                  type: 1,
+                  components: [
+                    {
+                      type: 2,
+                      style: 4,
+                      label: "Confirm Delete",
+                      custom_id: `adm:u:cdc:${targetUserId}:${characterId}`
+                    },
+                    {
+                      type: 2,
+                      style: 2,
+                      label: "Cancel",
+                      custom_id: `adm:u:cdx:${targetUserId}:${characterId}`
+                    }
+                  ]
+                }
+              ]
+            )
+          });
+          return;
+        }
+
+        if (action === "cdc") {
+          const deletedCharacter = deleteCharacterFromGuild(interaction.guildId, characterId);
+          const statusLine = deletedCharacter
+            ? `<:success:1479234774861221898> Deleted character **${deletedCharacter.name}** (\`${characterId}\`).`
+            : `${UNSUCCESSFUL_EMOJI_RAW} Character \`${characterId}\` no longer exists.`;
+
+          await interaction.update({
+            flags: 32768,
+            components: buildAdminUserEditPanel(interaction.guildId, targetUserId, statusLine)
+          });
+          return;
+        }
+
+        if (action === "cdx") {
+          await interaction.update({
+            flags: 32768,
+            components: buildAdminUserEditPanel(
+              interaction.guildId,
+              targetUserId,
+              `${UNSUCCESSFUL_EMOJI_RAW} Character deletion cancelled.`
+            )
+          });
+          return;
+        }
+      }
+
+      if (interaction.customId.startsWith("shoprole:")) {
+        if (!interaction.inGuild()) {
+          await interaction.reply({
+            content: "This button only works in a server.",
+            flags: 32768,
+            ephemeral: true
+          });
+          return;
+        }
+
+        if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+          await interaction.reply({
+            content: "You do not have permission to manage shop items.",
+            flags: 32768,
+            ephemeral: true
+          });
+          return;
+        }
+
+        const parts = interaction.customId.split(":");
+        const action = parts[1];
+        const itemId = parts[2];
+
+        if (action === "add") {
+          const modal = {
+            title: "Add Role Shop Item",
+            custom_id: "shoprole:add:modal",
+            components: [
+              {
+                type: 1,
+                components: [
+                  {
+                    type: 4,
+                    custom_id: "name",
+                    style: 1,
+                    label: "Item Name",
+                    placeholder: "Example: VIP Access",
+                    required: true,
+                    max_length: 80
+                  }
+                ]
+              },
+              {
+                type: 1,
+                components: [
+                  {
+                    type: 4,
+                    custom_id: "description",
+                    style: 2,
+                    label: "Description",
+                    placeholder: "What this item gives",
+                    required: true,
+                    max_length: 200
+                  }
+                ]
+              },
+              {
+                type: 1,
+                components: [
+                  {
+                    type: 4,
+                    custom_id: "price",
+                    style: 1,
+                    label: "Price (user points)",
+                    placeholder: "Example: 250",
+                    required: true,
+                    max_length: 10
+                  }
+                ]
+              },
+              {
+                type: 1,
+                components: [
+                  {
+                    type: 4,
+                    custom_id: "role",
+                    style: 1,
+                    label: "Role (mention or ID)",
+                    placeholder: "Example: <@&123456789012345678>",
+                    required: true,
+                    max_length: 32
+                  }
+                ]
+              }
+            ]
+          };
+
+          await interaction.showModal(modal);
+          return;
+        }
+
+        if (action === "refresh") {
+          await interaction.update({
+            flags: 32768,
+            components: buildRoleShopAdminPanel(interaction.guildId)
+          });
+          return;
+        }
+
+        if (action === "delete") {
+          const roleItem = getShopRoleItemsForGuild(interaction.guildId).find((item) => item.id === itemId);
+          if (!roleItem) {
+            await interaction.update({
+              flags: 32768,
+              components: buildRoleShopAdminPanel(
+                interaction.guildId,
+                `${UNSUCCESSFUL_EMOJI_RAW} Item no longer exists.`
+              )
+            });
+            return;
+          }
+
+          await interaction.update({
+            flags: 32768,
+            components: buildComponentsBox(
+              "Delete Shop Item",
+              [
+                `Delete **${roleItem.name}** for <@&${roleItem.roleId}>?`,
+                "This action cannot be undone."
+              ],
+              [
+                {
+                  type: 1,
+                  components: [
+                    {
+                      type: 2,
+                      style: 4,
+                      label: "Confirm Delete",
+                      custom_id: `shoprole:delete-confirm:${itemId}`
+                    },
+                    {
+                      type: 2,
+                      style: 2,
+                      label: "Cancel",
+                      custom_id: "shoprole:delete-cancel"
+                    }
+                  ]
+                }
+              ]
+            )
+          });
+          return;
+        }
+
+        if (action === "delete-confirm") {
+          const targetIndex = shopRoleItems.findIndex(
+            (item) => item.guildId === interaction.guildId && item.id === itemId
+          );
+
+          if (targetIndex >= 0) {
+            const [removedItem] = shopRoleItems.splice(targetIndex, 1);
+            saveShopRoleItems();
+            await interaction.update({
+              flags: 32768,
+              components: buildRoleShopAdminPanel(
+                interaction.guildId,
+                `<:success:1479234774861221898> Deleted shop item **${removedItem.name}**.`
+              )
+            });
+          } else {
+            await interaction.update({
+              flags: 32768,
+              components: buildRoleShopAdminPanel(
+                interaction.guildId,
+                `${UNSUCCESSFUL_EMOJI_RAW} Item no longer exists.`
+              )
+            });
+          }
+          return;
+        }
+
+        if (action === "delete-cancel") {
+          await interaction.update({
+            flags: 32768,
+            components: buildRoleShopAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} Deletion cancelled.`
+            )
+          });
+          return;
+        }
+      }
+
+      if (interaction.customId.startsWith("setup:panel:")) {
+        if (!interaction.inGuild()) {
+          await interaction.reply({
+            content: "This button only works in a server.",
+            flags: 32768,
+            ephemeral: true
+          });
+          return;
+        }
+
+        if (!hasAdminAccess(interaction)) {
+          await interaction.reply({
+            content: "You do not have permission to manage setup.",
+            flags: 32768,
+            ephemeral: true
+          });
+          return;
+        }
+
+        const action = interaction.customId.slice("setup:panel:".length);
+
+        if (action === "refresh") {
+          await interaction.update({
+            flags: 32768,
+            components: buildSetupAdminPanel(interaction.guildId)
+          });
+          return;
+        }
+
+        if (action === "add-admin-role") {
+          await interaction.reply({
+            content: "Choose a role from the dropdown.",
+            components: [
+              {
+                type: 1,
+                components: [
+                  {
+                    type: 6,
+                    custom_id: "setup:panel:add-admin-role:select",
+                    placeholder: "Select a role to add as admin",
+                    min_values: 1,
+                    max_values: 1
+                  }
+                ]
+              }
+            ],
+            ephemeral: true
+          });
+          return;
+        }
+
+        if (action === "remove-admin-role") {
+          const adminRoleIds = getAdminRoleIds(interaction.guildId);
+          if (adminRoleIds.length === 0) {
+            await interaction.reply({
+              ephemeral: true,
+              components: buildSetupAdminPanel(
+                interaction.guildId,
+                `${UNSUCCESSFUL_EMOJI_RAW} No admin roles configured.`
+              )
+            });
+            return;
+          }
+
+          const options = adminRoleIds
+            .map((roleId) => interaction.guild.roles.cache.get(roleId))
+            .filter(Boolean)
+            .slice(0, 25)
+            .map((role) => ({
+              label: role.name.slice(0, 100),
+              value: role.id,
+              description: `ID: ${role.id}`.slice(0, 100)
+            }));
+
+          if (options.length === 0) {
+            await interaction.reply({
+              ephemeral: true,
+              components: buildSetupAdminPanel(
+                interaction.guildId,
+                `${UNSUCCESSFUL_EMOJI_RAW} Configured admin roles were not found in this server.`
+              )
+            });
+            return;
+          }
+
+          await interaction.reply({
+            content: "Choose an admin role to remove.",
+            ephemeral: true,
+            components: [
+              {
+                type: 1,
+                components: [
+                  {
+                    type: 3,
+                    custom_id: "setup:panel:remove-admin-role:select",
+                    placeholder: "Select an admin role to remove",
+                    min_values: 1,
+                    max_values: 1,
+                    options
+                  }
+                ]
+              }
+            ]
+          });
+          return;
+        }
+
+        if (action === "set-logs") {
+          await interaction.reply({
+            content: "Choose the logs channel.",
+            ephemeral: true,
+            components: [
+              {
+                type: 1,
+                components: [
+                  {
+                    type: 8,
+                    custom_id: "setup:panel:set-logs:select",
+                    placeholder: "Select a logs channel",
+                    min_values: 1,
+                    max_values: 1,
+                    channel_types: [0, 5, 11, 12, 15]
+                  }
+                ]
+              }
+            ]
+          });
+          return;
+        }
+
+        if (action === "clear-logs") {
+          setLogsChannelIdForGuild(interaction.guildId, null);
+          await interaction.update({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `<:success:1479234774861221898> Logs channel cleared.`
+            )
+          });
+          return;
+        }
+      }
+
+      if (interaction.customId.startsWith("help:page:")) {
+        const requestedPage = Number(interaction.customId.split(":")[2] || 0);
+        const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
+        const helpView = buildHelpView(interaction.guildId, interaction.user.id, isAdmin, requestedPage);
+        await interaction.update({
+          flags: 32768,
+          components: helpView.components
+        });
+        return;
+      }
+
+      if (interaction.customId.startsWith("shop:page:")) {
+        if (!interaction.inGuild()) {
+          await interaction.reply({
+            content: "This button only works in a server.",
+            flags: 32768,
+            ephemeral: true
+          });
+          return;
+        }
+
+        const requestedPage = Number(interaction.customId.split(":")[2] || 0);
+        const shopView = buildShopView(interaction.guildId, interaction.user.id, requestedPage);
+        await interaction.update({
+          flags: 32768,
+          components: shopView.components
+        });
+        return;
+      }
+
+      if (interaction.customId.startsWith("shop:buy:")) {
+        if (!interaction.inGuild()) {
+          await interaction.reply({
+            content: "This button only works in a server.",
+            flags: 32768,
+            ephemeral: true
+          });
+          return;
+        }
+
+        const buyPayload = interaction.customId.slice("shop:buy:".length);
+        const lastSeparatorIndex = buyPayload.lastIndexOf(":");
+        const itemId = lastSeparatorIndex >= 0
+          ? buyPayload.slice(0, lastSeparatorIndex)
+          : buyPayload;
+        const parsedPage = lastSeparatorIndex >= 0
+          ? Number(buyPayload.slice(lastSeparatorIndex + 1))
+          : 0;
+        const page = Number.isFinite(parsedPage) ? parsedPage : 0;
+        let statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Purchase failed. Try again.`;
+
+        if (itemId === "slot") {
+          const userId = interaction.user.id;
+          const currentSlots = getUserCharacterSlotLimit(interaction.guildId, userId);
+          const slotCost = getNextSlotCost(currentSlots);
+          const currentPoints = getUserPoints(interaction.guildId, userId);
+
+          if (currentSlots >= MAX_CHARACTER_SLOTS) {
+            statusLine = `${UNSUCCESSFUL_EMOJI_RAW} You already have the maximum slots (${MAX_CHARACTER_SLOTS}).`;
+          } else 
+          if (currentPoints < slotCost) {
+            statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Not enough user points: ${formatPointsWithEmoji(currentPoints)}/${formatPointsWithEmoji(slotCost)}`;
+          } else if (spendPoints(interaction.guildId, userId, slotCost)) {
+            increaseUserCharacterSlots(interaction.guildId, userId, 1);
+            const newSlots = getUserCharacterSlotLimit(interaction.guildId, userId);
+            statusLine = `<:success:1479234774861221898> Bought +1 slot. You now have ${newSlots} slots.`;
+          }
+        } else if (itemId.startsWith("role:")) {
+          const shopRoleItemId = itemId.slice("role:".length);
+          const roleItem = getShopRoleItemsForGuild(interaction.guildId)
+            .find((item) => item.id === shopRoleItemId);
+
+          if (!roleItem) {
+            statusLine = `${UNSUCCESSFUL_EMOJI_RAW} This shop item no longer exists.`;
+          } else {
+            const guild = interaction.guild;
+            const member = guild ? await guild.members.fetch(interaction.user.id).catch(() => null) : null;
+            const role = guild?.roles?.cache?.get(roleItem.roleId) || null;
+
+            if (!member) {
+              statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Could not resolve your guild member data.`;
+            } else if (!role) {
+              statusLine = `${UNSUCCESSFUL_EMOJI_RAW} The configured role no longer exists.`;
+            } else if (member.roles.cache.has(role.id)) {
+              statusLine = `${UNSUCCESSFUL_EMOJI_RAW} You already own this role.`;
+            } else if (!role.editable || role.managed) {
+              statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Bot cannot grant this role.`;
+            } else {
+              const currentPoints = getUserPoints(interaction.guildId, interaction.user.id);
+              if (currentPoints < roleItem.price) {
+                statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Not enough user points: ${formatPointsWithEmoji(currentPoints)}/${formatPointsWithEmoji(roleItem.price)}`;
+              } else if (spendPoints(interaction.guildId, interaction.user.id, roleItem.price)) {
+                try {
+                  await member.roles.add(role);
+                  statusLine = `<:success:1479234774861221898> Bought **${roleItem.name}** and received <@&${role.id}>.`;
+                } catch (error) {
+                  addPoints(interaction.guildId, interaction.user.id, roleItem.price);
+                  statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Purchase failed because role assignment was blocked.`;
+                }
+              }
+            }
+          }
+        } else if (itemId.startsWith("upgrade:")) {
+          const upgradeId = itemId.slice("upgrade:".length);
+          const upgrade = CHARACTER_UPGRADE_DEFINITIONS[upgradeId];
+          const selectedCharacterId = getSelectedCharacterId(interaction.guildId, interaction.user.id);
+
+          if (!upgrade) {
+            statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Unknown upgrade.`;
+          } else if (!selectedCharacterId) {
+            statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Select a character first with /character pick.`;
+          } else if (getAssignedUserId(interaction.guildId, selectedCharacterId) !== interaction.user.id) {
+            statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Your selected character is not assigned to you.`;
+          } else if (hasCharacterUpgrade(interaction.guildId, selectedCharacterId, upgradeId)) {
+            statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Selected character already owns this upgrade.`;
+          } else {
+            const charPoints = getCharacterPoints(interaction.guildId, selectedCharacterId);
+            if (charPoints < upgrade.cost) {
+              statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Not enough character points: ${formatPointsWithEmoji(charPoints)}/${formatPointsWithEmoji(upgrade.cost)}`;
+            } else if (spendCharacterPoints(interaction.guildId, selectedCharacterId, upgrade.cost)) {
+              addCharacterUpgrade(interaction.guildId, selectedCharacterId, upgradeId);
+              const character = getCharacterById(selectedCharacterId, interaction.guildId);
+              statusLine = `<:success:1479234774861221898> Bought ${upgrade.name} for ${character?.name || selectedCharacterId}.`;
+            }
+          }
+        }
+
+        const shopView = buildShopView(interaction.guildId, interaction.user.id, page, statusLine);
+        await interaction.update({
+          flags: 32768,
+          components: shopView.components
+        });
+        return;
+      }
+
       if (interaction.customId === "confirm_delete" || interaction.customId === "cancel_delete") {
         // Button handler is already in the delete command above
         // This is just for safety
@@ -1896,6 +5289,7 @@ client.on("interactionCreate", async (interaction) => {
 
       if (interaction.customId === "edit_user_profile") {
         const userId = interaction.user.id;
+
         const userProfile = userProfiles[userId] || {};
 
         // Show modal with current values pre-filled
@@ -1976,15 +5370,24 @@ client.on("interactionCreate", async (interaction) => {
           { name: "/character create-and-assign", desc: "Create and auto-assign a character" },
           { name: "/user profile [user]", desc: "View user profile" },
           { name: "/user edit", desc: "Edit your profile" },
-          { name: "/say [message]", desc: "Send message as your character" }
+          { name: "/wallet", desc: "View combined user + character wallet" },
+          { name: "/shop", desc: "Buy upgrades and other shop items" },
+          { name: "/say [message] [image] [reply_to]", desc: "Send message as your character with optional image/reply" },
+          { name: "/points", desc: "View your user/character points" },
+          { name: "/leaderboard [type] [limit]", desc: "View user or character rankings" }
         ];
 
         const adminCommands = [
           { name: "/character assign [character] [user]", desc: "Assign character to user" },
           { name: "/character create [options]", desc: "Create character (admin only)" },
           { name: "/character delete [character]", desc: "Delete character" },
+          { name: "/character change-id [character] [new-id]", desc: "Change character ID" },
+          { name: "/admin user edit [user]", desc: "Manage user profile + character actions" },
+          { name: "/setup panel", desc: "Manage admin roles + logs channel" },
+          { name: "/setup setup-logs-channel [channel]", desc: "Quick set logging channel" },
+          { name: "/setup add-points ...", desc: "Add user/character wallet points" },
+          { name: "/setup add-role-shop-item", desc: "Open role shop item manager" },
           { name: "/character clear-webhooks", desc: "Clear webhook cache" },
-          { name: "/setup setup-logs-channel [channel]", desc: "Set logging channel" },
           { name: "/bot-say [message] [channel]", desc: "Send message as bot" }
         ];
 
@@ -2044,12 +5447,470 @@ client.on("interactionCreate", async (interaction) => {
           flags: 32768
         });
       }
+
+      if (interaction.customId.startsWith("leaderboard:")) {
+        if (!interaction.inGuild()) {
+          await interaction.reply({
+            content: "This button only works in a server.",
+            flags: 32768,
+            ephemeral: true
+          });
+          return;
+        }
+
+        const parts = interaction.customId.split(":");
+        const type = parts[1] === "characters" ? "characters" : "users";
+        const offset = Number(parts[2] || 0);
+        const limit = Number(parts[3] || 10);
+
+        const view = await buildLeaderboardView(interaction.guild, type, limit, offset);
+        await interaction.update({
+          components: buildComponentsBox(view.title, view.lines, view.extraComponents),
+          flags: 32768
+        });
+      }
+    }
+
+    if (
+      interaction.customId === "setup:panel:add-admin-role:select" &&
+      Array.isArray(interaction.values)
+    ) {
+        if (!interaction.inGuild() || !hasAdminAccess(interaction)) {
+          await acknowledgeInteractionSilently(interaction);
+          return;
+        }
+
+        const roleId = interaction.values?.[0];
+        const role = roleId ? interaction.guild.roles.cache.get(roleId) : null;
+
+        if (!role || role.id === interaction.guildId) {
+          await interaction.reply({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} Invalid role selection.`
+            ),
+            ephemeral: true
+          });
+          return;
+        }
+
+        if (getAdminRoleIds(interaction.guildId).includes(role.id)) {
+          await interaction.reply({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} <@&${role.id}> is already an admin role.`
+            ),
+            ephemeral: true
+          });
+          return;
+        }
+
+        addAdminRoleId(interaction.guildId, role.id);
+        await interaction.reply({
+          flags: 32768,
+          components: buildSetupAdminPanel(
+            interaction.guildId,
+            `<:success:1479234774861221898> Added <@&${role.id}> as an admin role.`
+          ),
+          ephemeral: true
+        });
+        return;
+    }
+
+    if (
+      interaction.customId === "setup:panel:remove-admin-role:select" &&
+      Array.isArray(interaction.values)
+    ) {
+      if (!interaction.inGuild() || !hasAdminAccess(interaction)) {
+        await acknowledgeInteractionSilently(interaction);
+        return;
+      }
+
+      const roleId = interaction.values?.[0];
+      const role = roleId ? interaction.guild.roles.cache.get(roleId) : null;
+
+      if (!roleId) {
+        await interaction.reply({
+          flags: 32768,
+          components: buildSetupAdminPanel(
+            interaction.guildId,
+            `${UNSUCCESSFUL_EMOJI_RAW} Invalid role selection.`
+          ),
+          ephemeral: true
+        });
+        return;
+      }
+
+      if (!getAdminRoleIds(interaction.guildId).includes(roleId)) {
+        await interaction.reply({
+          flags: 32768,
+          components: buildSetupAdminPanel(
+            interaction.guildId,
+            `${UNSUCCESSFUL_EMOJI_RAW} That role is not currently configured.`
+          ),
+          ephemeral: true
+        });
+        return;
+      }
+
+      removeAdminRoleId(interaction.guildId, roleId);
+      await interaction.reply({
+        flags: 32768,
+        components: buildSetupAdminPanel(
+          interaction.guildId,
+          `<:success:1479234774861221898> Removed ${role ? `<@&${role.id}>` : `role \`${roleId}\``} from admin roles.`
+        ),
+        ephemeral: true
+      });
+      return;
+    }
+
+    if (
+      interaction.customId === "setup:panel:set-logs:select" &&
+      Array.isArray(interaction.values)
+    ) {
+      if (!interaction.inGuild() || !hasAdminAccess(interaction)) {
+        await acknowledgeInteractionSilently(interaction);
+        return;
+      }
+
+      const channelId = interaction.values?.[0];
+      const channel = channelId ? interaction.guild.channels.cache.get(channelId) : null;
+
+      if (!channel || !channel.isTextBased()) {
+        await interaction.reply({
+          flags: 32768,
+          components: buildSetupAdminPanel(
+            interaction.guildId,
+            `${UNSUCCESSFUL_EMOJI_RAW} Invalid channel selection.`
+          ),
+          ephemeral: true
+        });
+        return;
+      }
+
+      setLogsChannelIdForGuild(interaction.guildId, channel.id);
+      await interaction.reply({
+        flags: 32768,
+        components: buildSetupAdminPanel(
+          interaction.guildId,
+          `<:success:1479234774861221898> Logs channel set to <#${channel.id}>.`
+        ),
+        ephemeral: true
+      });
+      return;
     }
 
     if (interaction.isModalSubmit()) {
       console.log("=== MODAL SUBMIT ===");
       console.log("Modal customId:", interaction.customId);
       console.log("Checking edit_user_profile_modal...");
+
+      if (interaction.customId.startsWith("adm:u:pm:")) {
+        if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+          await acknowledgeInteractionSilently(interaction);
+          return;
+        }
+
+        const targetUserId = interaction.customId.split(":")[3];
+        if (!targetUserId) {
+          await acknowledgeInteractionSilently(interaction);
+          return;
+        }
+
+        const getFieldValue = (customId) => {
+          if (interaction.fields?.getTextInputValue) {
+            try {
+              return interaction.fields.getTextInputValue(customId);
+            } catch (error) {
+              return null;
+            }
+          }
+          return null;
+        };
+
+        const nickname = getFieldValue("nickname");
+        const about = getFieldValue("about");
+        const interests = getFieldValue("interests");
+
+        if (!userProfiles[targetUserId]) {
+          userProfiles[targetUserId] = {};
+        }
+
+        const updates = [];
+
+        if (nickname && nickname.trim()) {
+          if (userProfiles[targetUserId].nickname !== nickname.trim()) {
+            userProfiles[targetUserId].nickname = nickname.trim();
+            updates.push(`Nickname: **${nickname.trim()}**`);
+          }
+        } else if (nickname === "") {
+          if (userProfiles[targetUserId].nickname) {
+            delete userProfiles[targetUserId].nickname;
+            updates.push("Nickname: **removed**");
+          }
+        }
+
+        if (about && about.trim()) {
+          if (userProfiles[targetUserId].about !== about.trim()) {
+            userProfiles[targetUserId].about = about.trim();
+            updates.push(`About: **${about.trim().substring(0, 50)}${about.trim().length > 50 ? "..." : ""}**`);
+          }
+        } else if (about === "") {
+          if (userProfiles[targetUserId].about) {
+            delete userProfiles[targetUserId].about;
+            updates.push("About: **removed**");
+          }
+        }
+
+        if (interests && interests.trim()) {
+          if (userProfiles[targetUserId].interests !== interests.trim()) {
+            userProfiles[targetUserId].interests = interests.trim();
+            updates.push(`Interests: **${interests.trim().substring(0, 50)}${interests.trim().length > 50 ? "..." : ""}**`);
+          }
+        } else if (interests === "") {
+          if (userProfiles[targetUserId].interests) {
+            delete userProfiles[targetUserId].interests;
+            updates.push("Interests: **removed**");
+          }
+        }
+
+        if (updates.length === 0) {
+          await acknowledgeInteractionSilently(interaction);
+          return;
+        }
+
+        saveUserProfiles();
+        await acknowledgeInteractionSilently(interaction);
+        return;
+      }
+
+      if (interaction.customId === "shoprole:add:modal") {
+        if (!interaction.inGuild() || !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+          await acknowledgeInteractionSilently(interaction);
+          return;
+        }
+
+        const getFieldValue = (customId) => {
+          if (interaction.fields?.getTextInputValue) {
+            try {
+              return interaction.fields.getTextInputValue(customId);
+            } catch (error) {
+              return "";
+            }
+          }
+          return "";
+        };
+
+        const name = getFieldValue("name").trim();
+        const description = getFieldValue("description").trim();
+        const rawPrice = getFieldValue("price").trim();
+        const rawRole = getFieldValue("role").trim();
+
+        const price = Number.parseInt(rawPrice, 10);
+        if (!name || !description || !Number.isFinite(price) || price <= 0) {
+          await interaction.reply({
+            flags: 32768,
+            components: buildRoleShopAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} Invalid form values. Check name, description, and numeric price.`
+            ),
+            ephemeral: true
+          });
+          return;
+        }
+
+        const roleId = parseRoleIdInput(rawRole);
+        const role = roleId ? interaction.guild.roles.cache.get(roleId) : null;
+        if (!role) {
+          await interaction.reply({
+            flags: 32768,
+            components: buildRoleShopAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} Could not resolve that role. Use role mention or ID.`
+            ),
+            ephemeral: true
+          });
+          return;
+        }
+
+        if (role.id === interaction.guildId || role.managed) {
+          await interaction.reply({
+            flags: 32768,
+            components: buildRoleShopAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} That role cannot be used as a purchasable item.`
+            ),
+            ephemeral: true
+          });
+          return;
+        }
+
+        const duplicate = getShopRoleItemsForGuild(interaction.guildId).find(
+          (item) => item.roleId === role.id && item.name.toLowerCase() === name.toLowerCase()
+        );
+        if (duplicate) {
+          await interaction.reply({
+            flags: 32768,
+            components: buildRoleShopAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} An item with the same role and name already exists.`
+            ),
+            ephemeral: true
+          });
+          return;
+        }
+
+        shopRoleItems.push({
+          id: generateShopRoleItemId(),
+          guildId: interaction.guildId,
+          roleId: role.id,
+          price,
+          name,
+          description,
+          createdBy: interaction.user.id,
+          createdAt: new Date().toISOString()
+        });
+        saveShopRoleItems();
+
+        await interaction.reply({
+          flags: 32768,
+          components: buildRoleShopAdminPanel(
+            interaction.guildId,
+            `<:success:1479234774861221898> Added **${name}** for <@&${role.id}> at **${price} ${POINTS_EMOJI_RAW}**.`
+          ),
+          ephemeral: true
+        });
+        return;
+      }
+
+      if (interaction.customId === "setup:panel:add-admin-role:modal") {
+        if (!interaction.inGuild() || !hasAdminAccess(interaction)) {
+          await acknowledgeInteractionSilently(interaction);
+          return;
+        }
+
+        const rawRole = interaction.fields.getTextInputValue("role") || "";
+        const roleId = parseRoleIdInput(rawRole);
+        const role = roleId ? interaction.guild.roles.cache.get(roleId) : null;
+
+        if (!role || role.id === interaction.guildId) {
+          await interaction.reply({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} Invalid role. Use a role mention or ID.`
+            ),
+            ephemeral: true
+          });
+          return;
+        }
+
+        if (getAdminRoleIds(interaction.guildId).includes(role.id)) {
+          await interaction.reply({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} <@&${role.id}> is already an admin role.`
+            ),
+            ephemeral: true
+          });
+          return;
+        }
+
+        addAdminRoleId(interaction.guildId, role.id);
+        await interaction.reply({
+          flags: 32768,
+          components: buildSetupAdminPanel(
+            interaction.guildId,
+            `<:success:1479234774861221898> Added <@&${role.id}> as an admin role.`
+          ),
+          ephemeral: true
+        });
+        return;
+      }
+
+      if (interaction.customId === "setup:panel:remove-admin-role:modal") {
+        if (!interaction.inGuild() || !hasAdminAccess(interaction)) {
+          await acknowledgeInteractionSilently(interaction);
+          return;
+        }
+
+        const rawRole = interaction.fields.getTextInputValue("role") || "";
+        const roleId = parseRoleIdInput(rawRole);
+        const role = roleId ? interaction.guild.roles.cache.get(roleId) : null;
+
+        if (!roleId) {
+          await interaction.reply({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} Invalid role. Use a role mention or ID.`
+            ),
+            ephemeral: true
+          });
+          return;
+        }
+
+        if (!getAdminRoleIds(interaction.guildId).includes(roleId)) {
+          await interaction.reply({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} That role is not currently configured.`
+            ),
+            ephemeral: true
+          });
+          return;
+        }
+
+        removeAdminRoleId(interaction.guildId, roleId);
+        await interaction.reply({
+          flags: 32768,
+          components: buildSetupAdminPanel(
+            interaction.guildId,
+            `<:success:1479234774861221898> Removed ${role ? `<@&${role.id}>` : `role \`${roleId}\``} from admin roles.`
+          ),
+          ephemeral: true
+        });
+        return;
+      }
+
+      if (interaction.customId === "setup:panel:set-logs:modal") {
+        if (!interaction.inGuild() || !hasAdminAccess(interaction)) {
+          await acknowledgeInteractionSilently(interaction);
+          return;
+        }
+
+        const rawChannel = interaction.fields.getTextInputValue("channel") || "";
+        const channelId = parseChannelIdInput(rawChannel);
+        const channel = channelId ? interaction.guild.channels.cache.get(channelId) : null;
+
+        if (!channel || !channel.isTextBased()) {
+          await interaction.reply({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} Invalid channel. Use a text channel mention or ID.`
+            ),
+            ephemeral: true
+          });
+          return;
+        }
+
+        setLogsChannelIdForGuild(interaction.guildId, channel.id);
+        await interaction.reply({
+          flags: 32768,
+          components: buildSetupAdminPanel(
+            interaction.guildId,
+            `<:success:1479234774861221898> Logs channel set to <#${channel.id}>.`
+          ),
+          ephemeral: true
+        });
+        return;
+      }
       
       if (interaction.customId === "edit_user_profile_modal") {
         const userId = interaction.user.id;
@@ -2122,17 +5983,19 @@ client.on("interactionCreate", async (interaction) => {
         await acknowledgeInteractionSilently(interaction);
 
         // Log profile edit if logs channel is configured
+        const logsChannelId = getLogsChannelIdForGuild(interaction.guildId);
         if (logsChannelId) {
           try {
             const logsChannel = await interaction.client.channels.fetch(logsChannelId);
             if (logsChannel?.isTextBased()) {
+              const emojiUpdates = updates.map((change) => `${BULLET_EMOJI_RAW} ${change}`);
               const logComponents = [
-                { type: 10, content: "## User Profile Updated" },
+                { type: 10, content: "## <:success:1479234774861221898> User Profile Updated" },
                 { type: 14, divider: true, spacing: 1 },
-                { type: 10, content: `**User:** ${interaction.user.username}` },
-                { type: 10, content: `**Changes:**\n${updates.join("\n")}` },
+                { type: 10, content: `${BULLET_EMOJI_RAW} **User:** ${interaction.user.username}` },
+                { type: 10, content: `${BULLET_EMOJI_RAW} **Changes:**\n${emojiUpdates.join("\n")}` },
                 { type: 14, divider: true, spacing: 1 },
-                { type: 10, content: `_${interaction.user.username}_ • ${new Date().toISOString()}` }
+                { type: 10, content: `${BULLET_EMOJI_RAW} _${interaction.user.username}_ • ${new Date().toISOString()}` }
               ];
               await logsChannel.send({
                 flags: 32768,
@@ -2152,7 +6015,7 @@ client.on("interactionCreate", async (interaction) => {
         const characterId = interaction.customId.replace("edit_character_basic_", "");
         
         // Check if character exists
-        const character = getCharacterById(characterId);
+        const character = getCharacterById(characterId, interaction.guildId);
         if (!character) {
           await replyComponentsV2(
             interaction,
@@ -2166,7 +6029,7 @@ client.on("interactionCreate", async (interaction) => {
 
         // Check permissions: admin OR character owner
         const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
-        const isOwner = assignments[characterId] === interaction.user.id;
+        const isOwner = getAssignedUserId(interaction.guildId, characterId) === interaction.user.id;
 
         if (!isAdmin && !isOwner) {
             await replyComponentsV2(
@@ -2255,19 +6118,21 @@ client.on("interactionCreate", async (interaction) => {
         logMessage(interaction.user.id, "Character Edit", editLog, interaction.channelId, interaction.guildId);
 
         // Send log to logs channel if configured
+        const logsChannelId = getLogsChannelIdForGuild(interaction.guildId);
         if (logsChannelId) {
           try {
             const logsChannel = await interaction.client.channels.fetch(logsChannelId);
             if (logsChannel?.isTextBased()) {
               const actorName = interaction.user.username;
+              const emojiUpdates = updates.map((change) => `${BULLET_EMOJI_RAW} ${change}`);
               const logComponents = [
-                { type: 10, content: "## Character Edited" },
+                { type: 10, content: "## <:success:1479234774861221898> Character Edited" },
                 { type: 14, divider: true, spacing: 1 },
-                { type: 10, content: `**${isAdmin ? "Admin" : "User"}:** ${actorName}` },
-                { type: 10, content: `**Character ID:** \`${characterId}\`` },
-                { type: 10, content: `**Changes:**\n${updates.join("\n")}` },
+                { type: 10, content: `${BULLET_EMOJI_RAW} **${isAdmin ? "Admin" : "User"}:** ${actorName}` },
+                { type: 10, content: `${BULLET_EMOJI_RAW} **Character ID:** \`${characterId}\`` },
+                { type: 10, content: `${BULLET_EMOJI_RAW} **Changes:**\n${emojiUpdates.join("\n")}` },
                 { type: 14, divider: true, spacing: 1 },
-                { type: 10, content: `_${interaction.user.username}_ • ${new Date().toISOString()}` }
+                { type: 10, content: `${BULLET_EMOJI_RAW} _${interaction.user.username}_ • ${new Date().toISOString()}` }
               ];
               await logsChannel.send({
                 flags: 32768,
@@ -2313,7 +6178,7 @@ client.on("interactionCreate", async (interaction) => {
         const characterId = interaction.customId.replace("edit_character_extended_", "");
         
         // Check if character exists
-        const character = getCharacterById(characterId);
+        const character = getCharacterById(characterId, interaction.guildId);
         if (!character) {
           await replyComponentsV2(
             interaction,
@@ -2327,7 +6192,7 @@ client.on("interactionCreate", async (interaction) => {
 
         // Check permissions: admin OR character owner
         const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
-        const isOwner = assignments[characterId] === interaction.user.id;
+        const isOwner = getAssignedUserId(interaction.guildId, characterId) === interaction.user.id;
 
         if (!isAdmin && !isOwner) {
           await replyComponentsV2(
@@ -2449,19 +6314,21 @@ client.on("interactionCreate", async (interaction) => {
         logMessage(interaction.user.id, "Character Edit", editLog, interaction.channelId, interaction.guildId);
 
         // Send log to logs channel if configured
+        const logsChannelId = getLogsChannelIdForGuild(interaction.guildId);
         if (logsChannelId) {
           try {
             const logsChannel = await interaction.client.channels.fetch(logsChannelId);
             if (logsChannel?.isTextBased()) {
               const actorName = interaction.user.username;
+              const emojiUpdates = updates.map((change) => `${BULLET_EMOJI_RAW} ${change}`);
               const logComponents = [
-                { type: 10, content: "## Character Edited" },
+                { type: 10, content: "## <:success:1479234774861221898> Character Edited" },
                 { type: 14, divider: true, spacing: 1 },
-                { type: 10, content: `**${isAdmin ? "Admin" : "User"}:** ${actorName}` },
-                { type: 10, content: `**Character ID:** \`${characterId}\`` },
-                { type: 10, content: `**Changes:**\n${updates.join("\n")}` },
+                { type: 10, content: `${BULLET_EMOJI_RAW} **${isAdmin ? "Admin" : "User"}:** ${actorName}` },
+                { type: 10, content: `${BULLET_EMOJI_RAW} **Character ID:** \`${characterId}\`` },
+                { type: 10, content: `${BULLET_EMOJI_RAW} **Changes:**\n${emojiUpdates.join("\n")}` },
                 { type: 14, divider: true, spacing: 1 },
-                { type: 10, content: `_${interaction.user.username}_ • ${new Date().toISOString()}` }
+                { type: 10, content: `${BULLET_EMOJI_RAW} _${interaction.user.username}_ • ${new Date().toISOString()}` }
               ];
               await logsChannel.send({  
                 flags: 32768,
@@ -2483,7 +6350,7 @@ client.on("interactionCreate", async (interaction) => {
         const characterId = interaction.customId.replace("edit_character_media_", "");
 
         // Check if character exists
-        const character = getCharacterById(characterId);
+        const character = getCharacterById(characterId, interaction.guildId);
         if (!character) {
           await replyComponentsV2(
             interaction,
@@ -2497,7 +6364,7 @@ client.on("interactionCreate", async (interaction) => {
 
         // Check permissions: admin OR character owner
         const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
-        const isOwner = assignments[characterId] === interaction.user.id;
+        const isOwner = getAssignedUserId(interaction.guildId, characterId) === interaction.user.id;
 
         if (!isAdmin && !isOwner) {
           await replyComponentsV2(
@@ -2570,19 +6437,21 @@ client.on("interactionCreate", async (interaction) => {
           writeJson(CHARACTERS_PATH, characters);
 
           // Send log to logs channel if configured
+          const logsChannelId = getLogsChannelIdForGuild(interaction.guildId);
           if (logsChannelId) {
             try {
               const logsChannel = await interaction.client.channels.fetch(logsChannelId);
               if (logsChannel?.isTextBased()) {
                 const actorName = interaction.user.username;
+                const emojiUpdates = updates.map((change) => `${BULLET_EMOJI_RAW} ${change}`);
                 const logComponents = [
-                  { type: 10, content: "## Character Edited" },
+                  { type: 10, content: "## <:success:1479234774861221898> Character Edited" },
                   { type: 14, divider: true, spacing: 1 },
-                  { type: 10, content: `**${isAdmin ? "Admin" : "User"}:** ${actorName}` },
-                  { type: 10, content: `**Character ID:** \`${characterId}\`` },
-                  { type: 10, content: `**Changes:**\n${updates.join("\n")}` },
+                  { type: 10, content: `${BULLET_EMOJI_RAW} **${isAdmin ? "Admin" : "User"}:** ${actorName}` },
+                  { type: 10, content: `${BULLET_EMOJI_RAW} **Character ID:** \`${characterId}\`` },
+                  { type: 10, content: `${BULLET_EMOJI_RAW} **Changes:**\n${emojiUpdates.join("\n")}` },
                   { type: 14, divider: true, spacing: 1 },
-                  { type: 10, content: `_${interaction.user.username}_ • ${new Date().toISOString()}` }
+                  { type: 10, content: `${BULLET_EMOJI_RAW} _${interaction.user.username}_ • ${new Date().toISOString()}` }
                 ];
                 await logsChannel.send({
                   flags: 32768,
@@ -2601,12 +6470,13 @@ client.on("interactionCreate", async (interaction) => {
           throw innerError;
         }
       }
+
     }
 
     if (interaction.isButton()) {
       if (interaction.customId.startsWith("edit_basic_")) {
         const characterId = interaction.customId.replace("edit_basic_", "");
-        const character = getCharacterById(characterId);
+        const character = getCharacterById(characterId, interaction.guildId);
 
         if (!character) {
           await replyComponentsV2(
@@ -2621,7 +6491,7 @@ client.on("interactionCreate", async (interaction) => {
 
         // Check permissions
         const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
-        const isOwner = assignments[characterId] === interaction.user.id;
+        const isOwner = getAssignedUserId(interaction.guildId, characterId) === interaction.user.id;
 
         if (!isAdmin && !isOwner) {
           await replyComponentsV2(
@@ -2699,7 +6569,7 @@ client.on("interactionCreate", async (interaction) => {
 
       if (interaction.customId.startsWith("edit_more_")) {
         const characterId = interaction.customId.replace("edit_more_", "");
-        const character = getCharacterById(characterId);
+        const character = getCharacterById(characterId, interaction.guildId);
 
         if (!character) {
           await replyComponentsV2(
@@ -2714,7 +6584,7 @@ client.on("interactionCreate", async (interaction) => {
 
         // Check permissions
         const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
-        const isOwner = assignments[characterId] === interaction.user.id;
+        const isOwner = getAssignedUserId(interaction.guildId, characterId) === interaction.user.id;
 
         if (!isAdmin && !isOwner) {
           await replyComponentsV2(
@@ -2791,7 +6661,7 @@ client.on("interactionCreate", async (interaction) => {
 
       if (interaction.customId.startsWith("edit_media_")) {
         const characterId = interaction.customId.replace("edit_media_", "");
-        const character = getCharacterById(characterId);
+        const character = getCharacterById(characterId, interaction.guildId);
 
         if (!character) {
           await replyComponentsV2(
@@ -2806,7 +6676,7 @@ client.on("interactionCreate", async (interaction) => {
 
         // Check permissions
         const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
-        const isOwner = assignments[characterId] === interaction.user.id;
+        const isOwner = getAssignedUserId(interaction.guildId, characterId) === interaction.user.id;
 
         if (!isAdmin && !isOwner) {
           await replyComponentsV2(
@@ -2868,6 +6738,16 @@ client.on("interactionCreate", async (interaction) => {
           [],
           { ephemeral: true }
         );
+      } else if (interaction.deferred && !interaction.replied) {
+        await interaction.editReply({
+          content: "Something went wrong handling that interaction.",
+          components: []
+        });
+      } else {
+        await interaction.followUp({
+          content: "Something went wrong handling that interaction.",
+          ephemeral: true
+        });
       }
     } catch (replyError) {
       console.error("Failed to send error message:", replyError);
@@ -2875,6 +6755,29 @@ client.on("interactionCreate", async (interaction) => {
   }
 });
 
+client.on("messageCreate", async (message) => {
+  try {
+    if (!message.guild) {
+      return;
+    }
+
+    if (message.author?.bot) {
+      return;
+    }
+
+    if (message.webhookId) {
+      return;
+    }
+
+    if (shouldAwardPoints(messagePointsCooldowns, message.guild.id, message.author.id, MESSAGE_POINTS_COOLDOWN_MS)) {
+      addPoints(message.guild.id, message.author.id, getRandomMessagePointsReward());
+    }
+  } catch (error) {
+    console.error("Failed to award message points:", error);
+  }
+});
+
+await initEconomyDatabase();
 await registerCommands();
 
 const token = process.env.DISCORD_TOKEN;
