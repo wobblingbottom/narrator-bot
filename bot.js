@@ -141,47 +141,51 @@ function isEntitlementActive(entitlement) {
 }
 
 function syncPremiumSlotsFromInteraction(interaction) {
-  if (!interaction?.inGuild?.() || !interaction.guildId || !interaction.user?.id) {
-    return;
-  }
-
-  const scopeKey = getUserSlotsKey(interaction.guildId, interaction.user.id);
-
-  if (DISCORD_PREMIUM_SLOT_SKU_IDS.size === 0) {
-    entitlementSlotBonusByScopeUser.delete(scopeKey);
-    return;
-  }
-
-  const entries = getEntitlementEntries(interaction.entitlements);
-
-  let premiumSlots = 0;
-  for (const entitlement of entries) {
-    if (!isEntitlementActive(entitlement)) {
-      continue;
+  try {
+    if (!interaction?.inGuild?.() || !interaction.guildId || !interaction.user?.id) {
+      return;
     }
 
-    const skuId = getEntitlementSkuId(entitlement);
-    if (!DISCORD_PREMIUM_SLOT_SKU_IDS.has(skuId)) {
-      continue;
+    const scopeKey = getUserSlotsKey(interaction.guildId, interaction.user.id);
+
+    if (DISCORD_PREMIUM_SLOT_SKU_IDS.size === 0) {
+      entitlementSlotBonusByScopeUser.delete(scopeKey);
+      return;
     }
 
-    const entitlementUserId = getEntitlementUserId(entitlement);
-    if (entitlementUserId && entitlementUserId !== interaction.user.id) {
-      continue;
+    const entries = getEntitlementEntries(interaction.entitlements);
+
+    let premiumSlots = 0;
+    for (const entitlement of entries) {
+      if (!isEntitlementActive(entitlement)) {
+        continue;
+      }
+
+      const skuId = getEntitlementSkuId(entitlement);
+      if (!DISCORD_PREMIUM_SLOT_SKU_IDS.has(skuId)) {
+        continue;
+      }
+
+      const entitlementUserId = getEntitlementUserId(entitlement);
+      if (entitlementUserId && entitlementUserId !== interaction.user.id) {
+        continue;
+      }
+
+      const entitlementGuildId = getEntitlementGuildId(entitlement);
+      if (entitlementGuildId && entitlementGuildId !== interaction.guildId) {
+        continue;
+      }
+
+      premiumSlots += 1;
     }
 
-    const entitlementGuildId = getEntitlementGuildId(entitlement);
-    if (entitlementGuildId && entitlementGuildId !== interaction.guildId) {
-      continue;
+    if (premiumSlots > 0) {
+      entitlementSlotBonusByScopeUser.set(scopeKey, premiumSlots);
+    } else {
+      entitlementSlotBonusByScopeUser.delete(scopeKey);
     }
-
-    premiumSlots += 1;
-  }
-
-  if (premiumSlots > 0) {
-    entitlementSlotBonusByScopeUser.set(scopeKey, premiumSlots);
-  } else {
-    entitlementSlotBonusByScopeUser.delete(scopeKey);
+  } catch (error) {
+    console.error("Failed to sync premium slot entitlements:", error);
   }
 }
 
@@ -1283,6 +1287,65 @@ async function acknowledgeInteractionSilently(interaction) {
   } catch (error) {
     console.error("Silent ack failed:", error);
   }
+}
+
+function normalizeReplyPayload(options) {
+  if (typeof options === "string") {
+    return { content: options };
+  }
+  if (!options || typeof options !== "object") {
+    return {};
+  }
+  return { ...options };
+}
+
+function toEditReplyPayload(options) {
+  const payload = normalizeReplyPayload(options);
+  delete payload.ephemeral;
+  delete payload.flags;
+  return payload;
+}
+
+function toFollowUpPayload(options) {
+  const payload = normalizeReplyPayload(options);
+  if (payload.flags === 32768 && payload.ephemeral === undefined) {
+    payload.ephemeral = true;
+  }
+  delete payload.flags;
+  return payload;
+}
+
+function installInteractionAckGuard(interaction, timeoutMs = 2000) {
+  if (!interaction?.isChatInputCommand?.()) {
+    return () => {};
+  }
+
+  const originalReply = interaction.reply.bind(interaction);
+  interaction.reply = async (options) => {
+    if (interaction.deferred && !interaction.replied) {
+      return interaction.editReply(toEditReplyPayload(options));
+    }
+
+    if (interaction.replied) {
+      return interaction.followUp(toFollowUpPayload(options));
+    }
+
+    return originalReply(options);
+  };
+
+  const timer = setTimeout(async () => {
+    if (interaction.replied || interaction.deferred) {
+      return;
+    }
+
+    try {
+      await interaction.deferReply({ ephemeral: true });
+    } catch (error) {
+      console.error("Interaction auto-defer failed:", error);
+    }
+  }, timeoutMs);
+
+  return () => clearTimeout(timer);
 }
 
 function logMessage(userId, characterName, message, channelId, guildId) {
@@ -2932,6 +2995,7 @@ client.on("guildDelete", () => {
 });
 
 client.on("interactionCreate", async (interaction) => {
+  const clearAckGuard = installInteractionAckGuard(interaction);
   try {
     syncPremiumSlotsFromInteraction(interaction);
 
@@ -4745,6 +4809,15 @@ client.on("interactionCreate", async (interaction) => {
         });
         return;
       }
+
+      await replyComponentsV2(
+        interaction,
+        "Unknown Command",
+        ["This command is not available right now. Please run /help and try again."],
+        [],
+        { ephemeral: true }
+      );
+      return;
 
     }
 
@@ -6932,6 +7005,8 @@ client.on("interactionCreate", async (interaction) => {
     } catch (replyError) {
       console.error("Failed to send error message:", replyError);
     }
+  } finally {
+    clearAckGuard();
   }
 });
 
