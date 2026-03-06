@@ -3303,13 +3303,6 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.isChatInputCommand()) {
-      if (!interaction.replied && !interaction.deferred) {
-        try {
-          await interaction.deferReply({ ephemeral: true });
-        } catch (deferError) {
-          console.error("Failed to defer slash command interaction:", deferError);
-        }
-      }
 
       if (interaction.commandName === "admin") {
         if (!interaction.inGuild()) {
