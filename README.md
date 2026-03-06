@@ -123,6 +123,19 @@ On startup, commands are registered by env mode:
 
 If you use PayPal, deploy `payments-server.js` as a separate Railway service with `npm run start:payments`.
 
+### Railway Backups (Important)
+
+- Keep your bot volume mounted at `/app/data`.
+- In Railway, open **Volumes** and create regular backups/snapshots for your data volume.
+- Before big changes, make a manual snapshot first.
+- Optional local backup from your repo folder:
+
+```bash
+tar -czf backup-data.tar.gz data/
+```
+
+- To restore locally, replace `data/` with your backup copy, then restart the bot.
+
 For detailed hosting docs:
 - `DEPLOYMENT.md`
 - `QUICKSTART.md`

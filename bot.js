@@ -2755,10 +2755,15 @@ const client = new Client({
   ]
 });
 
-client.once("ready", () => {
+client.once("clientReady", () => {
   console.log(`Logged in as ${client.user.tag}`);
 
   const commandGuildId = (process.env.COMMAND_GUILD_ID || "").trim();
+  const commandMode = commandGuildId ? `guild (${commandGuildId})` : "global";
+  console.log(
+    `[Startup] Mode=${commandMode} | Characters=${characters.length} | Assignments=${Object.keys(assignments).length} | Profiles=${Object.keys(userProfiles).length}`
+  );
+
   if (!commandGuildId) {
     (async () => {
       try {
