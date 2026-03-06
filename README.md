@@ -6,7 +6,7 @@ Multi-server Discord RP bot with:
 - User/character wallets and points
 - Shop upgrades + role shop items
 - Admin setup panel + logs channel
-- Optional PayPal payments backend for paid slots
+- Optional Discord SKU entitlement-based premium slots
 
 ## Tech Stack
 
@@ -44,8 +44,9 @@ Optional command scope:
 Other optional vars:
 - `GUILD_ID` (legacy fallback for integrations)
 - `CURRENCY_EMOJI`
+- `DISCORD_PREMIUM_SLOT_SKUS` (comma-separated SKU IDs that each grant +1 premium slot)
 
-Payments vars (only if using PayPal backend):
+Legacy payment vars (only if using optional PayPal backend):
 - `PAYMENTS_PORT`
 - `PAYPAL_MODE`
 - `PAYPAL_CLIENT_ID`
@@ -69,7 +70,7 @@ Start bot:
 npm run start
 ```
 
-Start payments backend:
+Start optional legacy payments backend:
 
 ```bash
 npm run start:payments
@@ -121,7 +122,7 @@ On startup, commands are registered by env mode:
 4. Attach a Railway Volume mounted at `/app/data` for persistent bot data.
 5. Redeploy and check logs for `Logged in as ...`.
 
-If you use PayPal, deploy `payments-server.js` as a separate Railway service with `npm run start:payments`.
+If you use the legacy PayPal backend, deploy `payments-server.js` as a separate Railway service with `npm run start:payments`.
 
 ### Railway Backups (Important)
 
