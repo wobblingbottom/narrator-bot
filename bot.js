@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import sharp from "sharp";
 import Database from "better-sqlite3";
 import {
+  ActivityType,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
@@ -2755,8 +2756,30 @@ const client = new Client({
   ]
 });
 
+function updateServerCountPresence() {
+  if (!client.user) {
+    return;
+  }
+
+  const guildCount = client.guilds.cache.size;
+  const suffix = guildCount === 1 ? "" : "s";
+
+  client.user.setPresence({
+    activities: [
+      {
+        name: `${guildCount} server${suffix}`,
+        type: ActivityType.Watching
+      }
+    ],
+    status: "online"
+  }).catch((error) => {
+    console.error("Failed to update server count presence:", error);
+  });
+}
+
 client.once("clientReady", () => {
   console.log(`Logged in as ${client.user.tag}`);
+  updateServerCountPresence();
 
   const commandGuildId = (process.env.COMMAND_GUILD_ID || "").trim();
   const commandMode = commandGuildId ? `guild (${commandGuildId})` : "global";
@@ -2782,6 +2805,14 @@ client.once("clientReady", () => {
       }
     })();
   }
+});
+
+client.on("guildCreate", () => {
+  updateServerCountPresence();
+});
+
+client.on("guildDelete", () => {
+  updateServerCountPresence();
 });
 
 client.on("interactionCreate", async (interaction) => {
