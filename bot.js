@@ -4622,6 +4622,8 @@ client.on("interactionCreate", async (interaction) => {
             console.error("Failed to send error reply:", replyError);
           }
         }
+
+        return;
       }
 
       if (interaction.commandName === "leaderboard") {
