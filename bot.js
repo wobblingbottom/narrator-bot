@@ -2101,7 +2101,7 @@ function buildHelpView(guildId, userId, isAdmin, page = 0) {
         "",
         "**Current Shop Items**",
         ...shopItems.map(
-          (item) => `${BULLET_EMOJI_RAW} ${item.emoji} **${item.name}** — ${item.cost} ${CURRENCY_EMOJI_RAW} (${item.wallet})`
+          (item) => `${BULLET_EMOJI_RAW} ${item.emoji} **${item.name}** — ${item.cost} ${POINTS_EMOJI_RAW} (${item.wallet})`
         )
       ]
     }
