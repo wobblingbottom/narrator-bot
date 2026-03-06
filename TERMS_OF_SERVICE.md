@@ -11,7 +11,7 @@ The Bot provides Discord features including, but not limited to:
 - Character/profile roleplay utilities
 - Message/webhook based roleplay posting
 - Economy, points, wallets, leaderboards, and shop features
-- Optional paid slot support via external payment provider integrations
+- Optional paid slot support via Discord monetization entitlements
 
 ## 2. Eligibility and Acceptable Use
 
@@ -34,7 +34,7 @@ See the Privacy Policy for details.
 ## 5. Payments and Virtual Items (If Enabled)
 
 If paid features are enabled:
-- Payments are processed by third-party providers (for example PayPal)
+- Payments are processed through Discord's monetization platform (with payout handling through Stripe or Discord partners)
 - Access to paid features may depend on successful payment verification
 - Digital/virtual feature purchases may be non-refundable except where required by law
 

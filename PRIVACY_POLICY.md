@@ -34,7 +34,7 @@ Where applicable, processing is based on legitimate interest in operating and se
 Data is not sold.
 Data may be shared only when necessary with:
 - Hosting/infrastructure providers
-- Payment processors (for payment features)
+- Discord monetization/payment partners and payout processors (for payment features)
 - Legal authorities when required by law
 
 ## 5. Data Retention

@@ -57,6 +57,12 @@ const WEBHOOK_AUTO_DELETE_MS = 60000;
 const WEBHOOK_NAME_PREFIX = "Crazyland";
 const WEBHOOK_SLOT_CYCLE_SIZE = 1;
 const WEBHOOK_RECOVERY_MAX_ATTEMPTS = Math.max(5, WEBHOOK_SLOT_CYCLE_SIZE * 4);
+const DISCORD_PREMIUM_SLOT_SKU_IDS = new Set(
+  String(process.env.DISCORD_PREMIUM_SLOT_SKUS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+);
 const CURRENCY_EMOJI_RAW = (process.env.CURRENCY_EMOJI || "🍬").trim();
 const SHOP_ITEM_EMOJI_RAW = "<:pointer:1478835623853949109>";
 const POINTS_EMOJI_RAW = "<:sundrop:1479231387864399963>";
@@ -82,6 +88,102 @@ const messagePointsCooldowns = new Map();
 const characterPointsCooldowns = new Map();
 const webhookAutoDeleteTimers = new Map();
 const webhookSlotCursorByChannel = new Map();
+const entitlementSlotBonusByScopeUser = new Map();
+
+function getEntitlementEntries(entitlements) {
+  if (!entitlements) {
+    return [];
+  }
+
+  if (Array.isArray(entitlements)) {
+    return entitlements;
+  }
+
+  if (typeof entitlements.values === "function") {
+    return Array.from(entitlements.values());
+  }
+
+  if (typeof entitlements[Symbol.iterator] === "function") {
+    return Array.from(entitlements);
+  }
+
+  return [];
+}
+
+function getEntitlementSkuId(entitlement) {
+  return String(entitlement?.skuId || entitlement?.sku_id || "").trim();
+}
+
+function getEntitlementUserId(entitlement) {
+  return String(entitlement?.userId || entitlement?.user_id || "").trim();
+}
+
+function getEntitlementGuildId(entitlement) {
+  return String(entitlement?.guildId || entitlement?.guild_id || "").trim();
+}
+
+function isEntitlementActive(entitlement) {
+  if (!entitlement || entitlement.deleted) {
+    return false;
+  }
+
+  const endsAt = entitlement.endsAt || entitlement.ends_at;
+  if (!endsAt) {
+    return true;
+  }
+
+  const expiresAt = new Date(endsAt).getTime();
+  if (!Number.isFinite(expiresAt)) {
+    return true;
+  }
+
+  return expiresAt > Date.now();
+}
+
+function syncPremiumSlotsFromInteraction(interaction) {
+  if (!interaction?.inGuild?.() || !interaction.guildId || !interaction.user?.id) {
+    return;
+  }
+
+  const scopeKey = getUserSlotsKey(interaction.guildId, interaction.user.id);
+
+  if (DISCORD_PREMIUM_SLOT_SKU_IDS.size === 0) {
+    entitlementSlotBonusByScopeUser.delete(scopeKey);
+    return;
+  }
+
+  const entries = getEntitlementEntries(interaction.entitlements);
+
+  let premiumSlots = 0;
+  for (const entitlement of entries) {
+    if (!isEntitlementActive(entitlement)) {
+      continue;
+    }
+
+    const skuId = getEntitlementSkuId(entitlement);
+    if (!DISCORD_PREMIUM_SLOT_SKU_IDS.has(skuId)) {
+      continue;
+    }
+
+    const entitlementUserId = getEntitlementUserId(entitlement);
+    if (entitlementUserId && entitlementUserId !== interaction.user.id) {
+      continue;
+    }
+
+    const entitlementGuildId = getEntitlementGuildId(entitlement);
+    if (entitlementGuildId && entitlementGuildId !== interaction.guildId) {
+      continue;
+    }
+
+    premiumSlots += 1;
+  }
+
+  if (premiumSlots > 0) {
+    entitlementSlotBonusByScopeUser.set(scopeKey, premiumSlots);
+  } else {
+    entitlementSlotBonusByScopeUser.delete(scopeKey);
+  }
+}
 
 function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) {
@@ -1285,9 +1387,23 @@ function getOwnedCharacterCount(guildId, userId) {
   return getOwnedCharacters(userId, guildId).length;
 }
 
-function getUserCharacterSlotLimit(guildId, userId) {
+function getStoredUserCharacterSlotLimit(guildId, userId) {
   const rawSlots = userSlots[getUserSlotsKey(guildId, userId)] || DEFAULT_CHARACTER_SLOTS;
   return Math.min(MAX_CHARACTER_SLOTS, rawSlots);
+}
+
+function getPremiumSlotBonus(guildId, userId) {
+  if (!guildId || !userId) {
+    return 0;
+  }
+
+  return entitlementSlotBonusByScopeUser.get(getUserSlotsKey(guildId, userId)) || 0;
+}
+
+function getUserCharacterSlotLimit(guildId, userId) {
+  const storedSlots = getStoredUserCharacterSlotLimit(guildId, userId);
+  const premiumSlots = getPremiumSlotBonus(guildId, userId);
+  return Math.min(MAX_CHARACTER_SLOTS, storedSlots + premiumSlots);
 }
 
 function getNextSlotCost(currentSlots) {
@@ -1300,7 +1416,7 @@ function increaseUserCharacterSlots(guildId, userId, amount = 1) {
     return;
   }
   const key = getUserSlotsKey(guildId, userId);
-  const currentSlots = getUserCharacterSlotLimit(guildId, userId);
+  const currentSlots = getStoredUserCharacterSlotLimit(guildId, userId);
   userSlots[key] = Math.min(MAX_CHARACTER_SLOTS, currentSlots + amount);
   upsertUserSlotsInDb(guildId, userId, userSlots[key]);
   saveUserSlots();
@@ -2784,7 +2900,7 @@ client.once("clientReady", () => {
   const commandGuildId = (process.env.COMMAND_GUILD_ID || "").trim();
   const commandMode = commandGuildId ? `guild (${commandGuildId})` : "global";
   console.log(
-    `[Startup] Mode=${commandMode} | Characters=${characters.length} | Assignments=${Object.keys(assignments).length} | Profiles=${Object.keys(userProfiles).length}`
+    `[Startup] Mode=${commandMode} | Characters=${characters.length} | Assignments=${Object.keys(assignments).length} | Profiles=${Object.keys(userProfiles).length} | PremiumSKUs=${DISCORD_PREMIUM_SLOT_SKU_IDS.size}`
   );
 
   if (!commandGuildId) {
@@ -2817,6 +2933,8 @@ client.on("guildDelete", () => {
 
 client.on("interactionCreate", async (interaction) => {
   try {
+    syncPremiumSlotsFromInteraction(interaction);
+
     const buildLeaderboardView = async (guild, type, limit, offset) => {
       const safeLimit = Math.max(1, Math.min(25, Number(limit) || 10));
       const safeOffset = Math.max(0, Number(offset) || 0);
@@ -3967,6 +4085,8 @@ client.on("interactionCreate", async (interaction) => {
         const userId = targetUser.id;
         const userPoints = getUserPoints(interaction.guildId, userId);
         const slotLimit = getUserCharacterSlotLimit(interaction.guildId, userId);
+        const premiumSlots = getPremiumSlotBonus(interaction.guildId, userId);
+        const baseSlotLimit = Math.max(DEFAULT_CHARACTER_SLOTS, slotLimit - premiumSlots);
         const usedSlots = getOwnedCharacterCount(interaction.guildId, userId);
 
         let characterId = interaction.options.getString("character", false)
@@ -3975,7 +4095,8 @@ client.on("interactionCreate", async (interaction) => {
         const lines = [
           `**User:** ${targetUser.tag}`,
           `**User Points:** ${formatPointsWithEmoji(userPoints)}`,
-          `**Character Slots:** ${usedSlots}/${slotLimit}`
+          `**Character Slots:** ${usedSlots}/${slotLimit}`,
+          `**Slot Sources:** Base ${baseSlotLimit} + Premium ${premiumSlots}`
         ];
 
         const characterSectionLines = [];
