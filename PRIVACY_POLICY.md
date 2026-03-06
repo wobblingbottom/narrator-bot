@@ -62,7 +62,7 @@ Data may be processed in countries different from your own, depending on hosting
 
 ## 10. Contact
 
-For privacy requests, contact: INSERT_CONTACT_EMAIL_OR_SERVER_LINK
+For privacy requests, contact: crazyland.support@gmail.com
 
 ## 11. Updates to This Policy
 
