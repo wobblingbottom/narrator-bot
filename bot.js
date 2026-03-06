@@ -26,6 +26,7 @@ dotenv.config();
 const DATA_DIR = path.resolve("./data");
 const CONFIG_DIR = path.resolve("./config");
 const DEFAULT_CHARACTERS_PATH = path.join(CONFIG_DIR, "characters.json");
+const DEFAULT_ASSIGNMENTS_PATH = path.join(CONFIG_DIR, "assignments.json");
 const CHARACTERS_PATH = path.join(DATA_DIR, "characters.json");
 const ASSIGNMENTS_PATH = path.join(DATA_DIR, "assignments.json");
 const SELECTIONS_PATH = path.join(DATA_DIR, "selections.json");
@@ -173,6 +174,19 @@ if (characters.length === 0) {
 }
 
 let assignments = readJson(ASSIGNMENTS_PATH, {});
+if (!assignments || typeof assignments !== "object" || Array.isArray(assignments)) {
+  assignments = {};
+}
+
+if (Object.keys(assignments).length === 0) {
+  const fallbackAssignments = readJson(DEFAULT_ASSIGNMENTS_PATH, {});
+  if (fallbackAssignments && typeof fallbackAssignments === "object" && !Array.isArray(fallbackAssignments)) {
+    assignments = { ...fallbackAssignments };
+    writeJson(ASSIGNMENTS_PATH, assignments);
+    console.log(`Seeded ${Object.keys(assignments).length} character assignment(s) from config defaults.`);
+  }
+}
+
 let selections = readJson(SELECTIONS_PATH, {});
 let webhooks = readJson(WEBHOOKS_PATH, {});
 let logsChannelId = readJson(LOGS_CHANNEL_PATH, null);
