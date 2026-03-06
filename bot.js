@@ -3055,17 +3055,19 @@ function updateServerCountPresence() {
   const guildCount = client.guilds.cache.size;
   const suffix = guildCount === 1 ? "" : "s";
 
-  client.user.setPresence({
-    activities: [
-      {
-        name: `${guildCount} server${suffix}`,
-        type: ActivityType.Watching
-      }
-    ],
-    status: "online"
-  }).catch((error) => {
+  try {
+    client.user.setPresence({
+      activities: [
+        {
+          name: `${guildCount} server${suffix}`,
+          type: ActivityType.Watching
+        }
+      ],
+      status: "online"
+    });
+  } catch (error) {
     console.error("Failed to update server count presence:", error);
-  });
+  }
 }
 
 client.once("clientReady", () => {
