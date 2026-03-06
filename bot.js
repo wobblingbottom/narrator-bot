@@ -1059,11 +1059,88 @@ function parseRoleIdInput(rawValue) {
   return null;
 }
 
+function normalizeRoleItemWallet(rawWallet) {
+  const value = String(rawWallet || "").trim().toLowerCase();
+  return value === "character" ? "character" : "user";
+}
+
+function getRoleItemWalletLabel(rawWallet) {
+  return normalizeRoleItemWallet(rawWallet) === "character" ? "Character Wallet" : "User Wallet";
+}
+
+function buildRoleShopAddModal(walletType = "user") {
+  const normalizedWallet = normalizeRoleItemWallet(walletType);
+  const walletLabel = getRoleItemWalletLabel(normalizedWallet);
+
+  return {
+    title: `Add Role Shop Item (${walletLabel})`,
+    custom_id: `shoprole:add:modal:${normalizedWallet}`,
+    components: [
+      {
+        type: 1,
+        components: [
+          {
+            type: 4,
+            custom_id: "name",
+            style: 1,
+            label: "Item Name",
+            placeholder: "Example: VIP Access",
+            required: true,
+            max_length: 80
+          }
+        ]
+      },
+      {
+        type: 1,
+        components: [
+          {
+            type: 4,
+            custom_id: "description",
+            style: 2,
+            label: "Description",
+            placeholder: "What this item gives",
+            required: true,
+            max_length: 200
+          }
+        ]
+      },
+      {
+        type: 1,
+        components: [
+          {
+            type: 4,
+            custom_id: "price",
+            style: 1,
+            label: `Price (${normalizedWallet} points)`,
+            placeholder: "Example: 250",
+            required: true,
+            max_length: 10
+          }
+        ]
+      },
+      {
+        type: 1,
+        components: [
+          {
+            type: 4,
+            custom_id: "role",
+            style: 1,
+            label: "Role (mention or ID)",
+            placeholder: "Example: <@&123456789012345678>",
+            required: true,
+            max_length: 32
+          }
+        ]
+      }
+    ]
+  };
+}
+
 function buildRoleShopAdminPanel(guildId, statusLine = null) {
   const roleItems = getShopRoleItemsForGuild(guildId);
   const components = [
     { type: 10, content: "## Role Shop Manager" },
-    { type: 10, content: "Manage user-wallet role items shown in `/shop`." },
+    { type: 10, content: "Manage role items shown in `/shop` (User Wallet or Character Wallet)." },
     { type: 14, divider: true, spacing: 1 }
   ];
 
@@ -1078,8 +1155,14 @@ function buildRoleShopAdminPanel(guildId, statusLine = null) {
       {
         type: 2,
         style: 1,
-        label: "Add Role Item",
-        custom_id: "shoprole:add"
+        label: "Add (User Wallet)",
+        custom_id: "shoprole:add:user"
+      },
+      {
+        type: 2,
+        style: 1,
+        label: "Add (Character Wallet)",
+        custom_id: "shoprole:add:character"
       },
       {
         type: 2,
@@ -1097,9 +1180,10 @@ function buildRoleShopAdminPanel(guildId, statusLine = null) {
   } else {
     for (let index = 0; index < roleItems.length; index += 1) {
       const item = roleItems[index];
+      const walletLabel = getRoleItemWalletLabel(item.wallet);
       components.push({
         type: 10,
-        content: `**${item.name}**\n${item.description}\nRole: <@&${item.roleId}> • Price: **${item.price} ${POINTS_EMOJI_RAW}**`
+        content: `**${item.name}**\n${item.description}\nRole: <@&${item.roleId}> • Wallet: ${walletLabel} • Price: **${item.price} ${POINTS_EMOJI_RAW}**`
       });
       components.push({
         type: 1,
@@ -1926,11 +2010,12 @@ function getShopItems(guildId, userId) {
 
   const roleItems = getShopRoleItemsForGuild(guildId);
   for (const roleItem of roleItems) {
+    const walletType = normalizeRoleItemWallet(roleItem.wallet);
     items.push({
       id: `role:${roleItem.id}`,
       name: roleItem.name,
       description: roleItem.description,
-      wallet: "User Wallet",
+      wallet: getRoleItemWalletLabel(walletType),
       cost: roleItem.price,
       emoji: SHOP_ITEM_EMOJI_RAW
     });
@@ -2690,6 +2775,16 @@ async function registerCommands() {
       subcommand
         .setName("add-role-shop-item")
         .setDescription("Open role shop item manager")
+        .addStringOption((option) =>
+          option
+            .setName("wallet")
+            .setDescription("Wallet charged when this role item is purchased")
+            .setRequired(false)
+            .addChoices(
+              { name: "User Wallet", value: "user" },
+              { name: "Character Wallet", value: "character" }
+            )
+        )
     );
 
   const botSayCommand = new SlashCommandBuilder()
@@ -4848,6 +4943,12 @@ client.on("interactionCreate", async (interaction) => {
             return;
           }
 
+          const preferredWallet = normalizeRoleItemWallet(interaction.options.getString("wallet", false));
+          if (interaction.options.getString("wallet", false)) {
+            await interaction.showModal(buildRoleShopAddModal(preferredWallet));
+            return;
+          }
+
           await interaction.reply({
             flags: 32768,
             components: buildRoleShopAdminPanel(interaction.guildId),
@@ -5250,68 +5351,8 @@ client.on("interactionCreate", async (interaction) => {
         const itemId = parts[2];
 
         if (action === "add") {
-          const modal = {
-            title: "Add Role Shop Item",
-            custom_id: "shoprole:add:modal",
-            components: [
-              {
-                type: 1,
-                components: [
-                  {
-                    type: 4,
-                    custom_id: "name",
-                    style: 1,
-                    label: "Item Name",
-                    placeholder: "Example: VIP Access",
-                    required: true,
-                    max_length: 80
-                  }
-                ]
-              },
-              {
-                type: 1,
-                components: [
-                  {
-                    type: 4,
-                    custom_id: "description",
-                    style: 2,
-                    label: "Description",
-                    placeholder: "What this item gives",
-                    required: true,
-                    max_length: 200
-                  }
-                ]
-              },
-              {
-                type: 1,
-                components: [
-                  {
-                    type: 4,
-                    custom_id: "price",
-                    style: 1,
-                    label: "Price (user points)",
-                    placeholder: "Example: 250",
-                    required: true,
-                    max_length: 10
-                  }
-                ]
-              },
-              {
-                type: 1,
-                components: [
-                  {
-                    type: 4,
-                    custom_id: "role",
-                    style: 1,
-                    label: "Role (mention or ID)",
-                    placeholder: "Example: <@&123456789012345678>",
-                    required: true,
-                    max_length: 32
-                  }
-                ]
-              }
-            ]
-          };
+          const walletType = normalizeRoleItemWallet(parts[2]);
+          const modal = buildRoleShopAddModal(walletType);
 
           await interaction.showModal(modal);
           return;
@@ -5641,16 +5682,40 @@ client.on("interactionCreate", async (interaction) => {
             } else if (!role.editable || role.managed) {
               statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Bot cannot grant this role.`;
             } else {
-              const currentPoints = getUserPoints(interaction.guildId, interaction.user.id);
-              if (currentPoints < roleItem.price) {
-                statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Not enough user points: ${formatPointsWithEmoji(currentPoints)}/${formatPointsWithEmoji(roleItem.price)}`;
-              } else if (spendPoints(interaction.guildId, interaction.user.id, roleItem.price)) {
-                try {
-                  await member.roles.add(role);
-                  statusLine = `<:success:1479234774861221898> Bought **${roleItem.name}** and received <@&${role.id}>.`;
-                } catch (error) {
-                  addPoints(interaction.guildId, interaction.user.id, roleItem.price);
-                  statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Purchase failed because role assignment was blocked.`;
+              const walletType = normalizeRoleItemWallet(roleItem.wallet);
+
+              if (walletType === "character") {
+                const selectedCharacterId = getSelectedCharacterId(interaction.guildId, interaction.user.id);
+                if (!selectedCharacterId) {
+                  statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Select a character first with /character pick.`;
+                } else if (getAssignedUserId(interaction.guildId, selectedCharacterId) !== interaction.user.id) {
+                  statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Your selected character is not assigned to you.`;
+                } else {
+                  const charPoints = getCharacterPoints(interaction.guildId, selectedCharacterId);
+                  if (charPoints < roleItem.price) {
+                    statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Not enough character points: ${formatPointsWithEmoji(charPoints)}/${formatPointsWithEmoji(roleItem.price)}`;
+                  } else if (spendCharacterPoints(interaction.guildId, selectedCharacterId, roleItem.price)) {
+                    try {
+                      await member.roles.add(role);
+                      statusLine = `<:success:1479234774861221898> Bought **${roleItem.name}** and received <@&${role.id}>.`;
+                    } catch (error) {
+                      addCharacterPoints(interaction.guildId, selectedCharacterId, roleItem.price);
+                      statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Purchase failed because role assignment was blocked.`;
+                    }
+                  }
+                }
+              } else {
+                const currentPoints = getUserPoints(interaction.guildId, interaction.user.id);
+                if (currentPoints < roleItem.price) {
+                  statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Not enough user points: ${formatPointsWithEmoji(currentPoints)}/${formatPointsWithEmoji(roleItem.price)}`;
+                } else if (spendPoints(interaction.guildId, interaction.user.id, roleItem.price)) {
+                  try {
+                    await member.roles.add(role);
+                    statusLine = `<:success:1479234774861221898> Bought **${roleItem.name}** and received <@&${role.id}>.`;
+                  } catch (error) {
+                    addPoints(interaction.guildId, interaction.user.id, roleItem.price);
+                    statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Purchase failed because role assignment was blocked.`;
+                  }
                 }
               }
             }
@@ -6095,11 +6160,14 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      if (interaction.customId === "shoprole:add:modal") {
+      if (interaction.customId.startsWith("shoprole:add:modal")) {
         if (!interaction.inGuild() || !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
           await acknowledgeInteractionSilently(interaction);
           return;
         }
+
+        const modalParts = interaction.customId.split(":");
+        const walletType = normalizeRoleItemWallet(modalParts[3]);
 
         const getFieldValue = (customId) => {
           if (interaction.fields?.getTextInputValue) {
@@ -6157,14 +6225,16 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         const duplicate = getShopRoleItemsForGuild(interaction.guildId).find(
-          (item) => item.roleId === role.id && item.name.toLowerCase() === name.toLowerCase()
+          (item) => item.roleId === role.id
+            && normalizeRoleItemWallet(item.wallet) === walletType
+            && item.name.toLowerCase() === name.toLowerCase()
         );
         if (duplicate) {
           await interaction.reply({
             flags: 32768,
             components: buildRoleShopAdminPanel(
               interaction.guildId,
-              `${UNSUCCESSFUL_EMOJI_RAW} An item with the same role and name already exists.`
+              `${UNSUCCESSFUL_EMOJI_RAW} An item with the same role, wallet, and name already exists.`
             ),
             ephemeral: true
           });
@@ -6176,6 +6246,7 @@ client.on("interactionCreate", async (interaction) => {
           guildId: interaction.guildId,
           roleId: role.id,
           price,
+          wallet: walletType,
           name,
           description,
           createdBy: interaction.user.id,
@@ -6187,7 +6258,7 @@ client.on("interactionCreate", async (interaction) => {
           flags: 32768,
           components: buildRoleShopAdminPanel(
             interaction.guildId,
-            `<:success:1479234774861221898> Added **${name}** for <@&${role.id}> at **${price} ${POINTS_EMOJI_RAW}**.`
+            `<:success:1479234774861221898> Added **${name}** for <@&${role.id}> at **${price} ${POINTS_EMOJI_RAW}** using ${getRoleItemWalletLabel(walletType)}.`
           ),
           ephemeral: true
         });
