@@ -4193,6 +4193,8 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
+      return;
+
       if (interaction.commandName === "user") {
         const subcommand = interaction.options.getSubcommand();
 
