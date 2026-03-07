@@ -2876,18 +2876,6 @@ async function registerCommands() {
     )
     .addSubcommand((subcommand) =>
       subcommand
-        .setName("setup-logs-channel")
-        .setDescription("Set the channel for bot logs")
-        .addChannelOption((option) =>
-          option
-            .setName("channel")
-            .setDescription("Channel for logs")
-            .setRequired(true)
-            .addChannelTypes(0, 5) // Text and News channels
-        )
-    )
-    .addSubcommand((subcommand) =>
-      subcommand
         .setName("add-points")
         .setDescription("Add points to a user or character wallet")
         .addStringOption((option) =>
@@ -4981,32 +4969,6 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
-        if (subcommand === "setup-logs-channel") {
-          const channel = interaction.options.getChannel("channel", true);
-
-          if (!channel.isTextBased()) {
-            await replyComponentsV2(
-              interaction,
-              "Setup",
-              ["The channel must be a text-based channel."],
-              [],
-              { ephemeral: true }
-            );
-            return;
-          }
-
-          setLogsChannelIdForGuild(interaction.guildId, channel.id);
-
-          await replyComponentsV2(
-            interaction,
-            "Setup",
-            [`Logs channel set to <#${channel.id}>.`],
-            [],
-            { ephemeral: true }
-          );
-          return;
-        }
-
         if (subcommand === "add-points") {
           const walletType = interaction.options.getString("wallet", true);
           const amount = interaction.options.getInteger("amount", true);
@@ -6018,7 +5980,6 @@ client.on("interactionCreate", async (interaction) => {
           { name: "/character change-id [character] [new-id]", desc: "Change character ID" },
           { name: "/admin user edit [user]", desc: "Manage user profile + character actions" },
           { name: "/setup panel", desc: "Manage admin roles + logs channel" },
-          { name: "/setup setup-logs-channel [channel]", desc: "Quick set logging channel" },
           { name: "/setup add-points ...", desc: "Add user/character wallet points" },
           { name: "/setup add-role-shop-item", desc: "Open role shop item manager" },
           { name: "/character clear-webhooks", desc: "Clear webhook cache" },
