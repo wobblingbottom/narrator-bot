@@ -2325,6 +2325,7 @@ function buildHelpView(guildId, userId, isAdmin, page = 0) {
         `${BULLET_EMOJI_RAW} \`/wallet\` - View user + character wallets`,
         `${BULLET_EMOJI_RAW} \`/shop\` - Buy upgrades and other items`,
         `${BULLET_EMOJI_RAW} \`/premium\` - Open premium purchase instructions`,
+        `${BULLET_EMOJI_RAW} \`/tutorial\` - Step-by-step getting started guide`,
         `${BULLET_EMOJI_RAW} \`/say\` - Speak as your selected character (optional image + reply_to message ID)`,
         `${BULLET_EMOJI_RAW} \`/points\` - View points`,
         `${BULLET_EMOJI_RAW} \`/leaderboard\` - View rankings`
@@ -2394,6 +2395,98 @@ function buildHelpView(guildId, userId, isAdmin, page = 0) {
         type: 2,
         style: 2,
         custom_id: `help:page:${safePage + 1}`,
+        label: "Next ▶",
+        disabled: safePage >= totalPages - 1
+      }
+    ]
+  });
+
+  return {
+    components: [{ type: 17, components }],
+    page: safePage,
+    totalPages
+  };
+}
+
+function buildTutorialView(guildId, userId, page = 0) {
+  const selectedCharacterId = guildId && userId ? getSelectedCharacterId(guildId, userId) : null;
+  const selectedCharacter = selectedCharacterId && guildId
+    ? getCharacterById(selectedCharacterId, guildId)
+    : null;
+
+  const selectedCharacterLine = selectedCharacter
+    ? `Current picked character: **${selectedCharacter.name}** (\`${selectedCharacterId}\`)`
+    : "Current picked character: **None** (use `/character pick`)";
+
+  const pages = [
+    {
+      title: "Tutorial • Step 1",
+      lines: [
+        "**Create your first character**",
+        `${BULLET_EMOJI_RAW} Run \`/character create-and-assign\` and fill at least **id** + **name**.`,
+        `${BULLET_EMOJI_RAW} This creates the character and assigns it to you immediately.`,
+        `${BULLET_EMOJI_RAW} Use \`/character list\` to confirm it exists and is assigned.`
+      ]
+    },
+    {
+      title: "Tutorial • Step 2",
+      lines: [
+        "**Pick the character you want to speak as**",
+        `${BULLET_EMOJI_RAW} Run \`/character pick character:<id>\`.`,
+        `${BULLET_EMOJI_RAW} ${selectedCharacterLine}`,
+        `${BULLET_EMOJI_RAW} You can switch anytime by running \`/character pick\` again.`
+      ]
+    },
+    {
+      title: "Tutorial • Step 3",
+      lines: [
+        "**Start roleplaying with /say**",
+        `${BULLET_EMOJI_RAW} Run \`/say message:<text>\` to send as your picked character.`,
+        `${BULLET_EMOJI_RAW} Optional: add \`image\` and \`reply_to\` message ID.`,
+        `${BULLET_EMOJI_RAW} You earn points from normal chat and from \`/say\`.`
+      ]
+    },
+    {
+      title: "Tutorial • Step 4",
+      lines: [
+        "**Use wallets and upgrades**",
+        `${BULLET_EMOJI_RAW} Run \`/wallet\` to check user + character balances.`,
+        `${BULLET_EMOJI_RAW} Run \`/shop\` to buy slot upgrades and character upgrades.`,
+        `${BULLET_EMOJI_RAW} Run \`/points\` and \`/leaderboard\` to track progress.`
+      ]
+    }
+  ];
+
+  const totalPages = pages.length;
+  const safePage = Number.isFinite(page) ? Math.min(Math.max(page, 0), totalPages - 1) : 0;
+  const currentPage = pages[safePage];
+
+  const components = [{ type: 10, content: `## ${currentPage.title}` }];
+  const contentLines = currentPage.lines.filter((line) => typeof line === "string" && line.trim().length > 0);
+
+  if (contentLines.length > 0) {
+    components.push({ type: 14, divider: true, spacing: 1 });
+    for (const line of contentLines) {
+      components.push({ type: 10, content: line });
+    }
+  }
+
+  components.push({ type: 14, divider: true, spacing: 1 });
+  components.push({ type: 10, content: `Page ${safePage + 1}/${totalPages}` });
+  components.push({
+    type: 1,
+    components: [
+      {
+        type: 2,
+        style: 2,
+        custom_id: `tutorial:page:${safePage - 1}`,
+        label: "◀ Prev",
+        disabled: safePage <= 0
+      },
+      {
+        type: 2,
+        style: 2,
+        custom_id: `tutorial:page:${safePage + 1}`,
         label: "Next ▶",
         disabled: safePage >= totalPages - 1
       }
@@ -2949,6 +3042,10 @@ async function registerCommands() {
     .setName("help")
     .setDescription("View available commands");
 
+  const tutorialCommand = new SlashCommandBuilder()
+    .setName("tutorial")
+    .setDescription("Step-by-step guide for using the bot");
+
   const premiumCommand = new SlashCommandBuilder()
     .setName("premium")
     .setDescription("Get the premium purchase link and steps");
@@ -3014,6 +3111,7 @@ async function registerCommands() {
     setupCommand.toJSON(),
     botSayCommand.toJSON(),
     helpCommand.toJSON(),
+    tutorialCommand.toJSON(),
     premiumCommand.toJSON(),
     shopCommand.toJSON(),
     walletCommand.toJSON(),
@@ -5236,6 +5334,16 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
+      if (interaction.commandName === "tutorial") {
+        const tutorialView = buildTutorialView(interaction.guildId, interaction.user.id, 0);
+        await interaction.reply({
+          flags: 32768,
+          components: tutorialView.components,
+          ephemeral: true
+        });
+        return;
+      }
+
       await replyComponentsV2(
         interaction,
         "Unknown Command",
@@ -5776,6 +5884,16 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
+      if (interaction.customId.startsWith("tutorial:page:")) {
+        const requestedPage = Number(interaction.customId.split(":")[2] || 0);
+        const tutorialView = buildTutorialView(interaction.guildId, interaction.user.id, requestedPage);
+        await interaction.update({
+          flags: 32768,
+          components: tutorialView.components
+        });
+        return;
+      }
+
       if (interaction.customId.startsWith("shop:page:")) {
         if (!interaction.inGuild()) {
           await interaction.reply({
@@ -6017,6 +6135,7 @@ client.on("interactionCreate", async (interaction) => {
           { name: "/wallet", desc: "View combined user + character wallet" },
           { name: "/shop", desc: "Buy upgrades and other shop items" },
           { name: "/premium", desc: "Get premium purchase link + steps" },
+          { name: "/tutorial", desc: "Step-by-step guide for using the bot" },
           { name: "/say [message] [image] [reply_to]", desc: "Send message as your character with optional image/reply" },
           { name: "/points", desc: "View your user/character points" },
           { name: "/leaderboard [type] [limit]", desc: "View user or character rankings" }
