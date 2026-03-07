@@ -396,6 +396,32 @@ function countPositiveNumericValues(mapLike) {
   return count;
 }
 
+function mergeNumericFallbackMap(targetMap, fallbackMap, floorValue = 0) {
+  if (!targetMap || typeof targetMap !== "object" || Array.isArray(targetMap)) {
+    return 0;
+  }
+
+  if (!fallbackMap || typeof fallbackMap !== "object" || Array.isArray(fallbackMap)) {
+    return 0;
+  }
+
+  let merged = 0;
+  for (const [key, rawValue] of Object.entries(fallbackMap)) {
+    const numericValue = Number(rawValue);
+    if (!Number.isFinite(numericValue) || numericValue <= floorValue) {
+      continue;
+    }
+
+    const currentValue = Number(targetMap[key] || 0);
+    if (!Number.isFinite(currentValue) || currentValue < numericValue) {
+      targetMap[key] = numericValue;
+      merged += 1;
+    }
+  }
+
+  return merged;
+}
+
 function importEconomyJsonIntoSqliteIfEmpty() {
   if (!economyDb) {
     return;
@@ -477,6 +503,13 @@ function importEconomyJsonIntoSqliteIfEmpty() {
   }
 }
 
+const fallbackPointsForMerge = readJson(DEFAULT_POINTS_PATH, {});
+const mergedUserPoints = mergeNumericFallbackMap(points, fallbackPointsForMerge, 0);
+if (mergedUserPoints > 0) {
+  writeJson(POINTS_PATH, points);
+  console.log(`Merged ${mergedUserPoints} user point balance(s) from config defaults.`);
+}
+
 function loadEconomyCachesFromSqlite() {
   if (!economyDb) {
     return;
@@ -510,6 +543,13 @@ function loadEconomyCachesFromSqlite() {
     }
     characterUpgrades[key].push(row.upgrade_id);
   }
+}
+
+const fallbackCharacterPointsForMerge = readJson(DEFAULT_CHARACTER_POINTS_PATH, {});
+const mergedCharacterPoints = mergeNumericFallbackMap(characterPoints, fallbackCharacterPointsForMerge, 0);
+if (mergedCharacterPoints > 0) {
+  writeJson(CHARACTER_POINTS_PATH, characterPoints);
+  console.log(`Merged ${mergedCharacterPoints} character point balance(s) from config defaults.`);
 }
 
 async function initEconomyDatabase() {
@@ -575,6 +615,13 @@ async function initEconomyDatabase() {
   );
 
   console.log("Economy DB backend: SQLite");
+}
+
+const fallbackUserSlotsForMerge = readJson(DEFAULT_USER_SLOTS_PATH, {});
+const mergedUserSlots = mergeNumericFallbackMap(userSlots, fallbackUserSlotsForMerge, DEFAULT_CHARACTER_SLOTS - 1);
+if (mergedUserSlots > 0) {
+  writeJson(USER_SLOTS_PATH, userSlots);
+  console.log(`Merged ${mergedUserSlots} user slot record(s) from config defaults.`);
 }
 
 function upsertUserPointsInDb(guildId, userId, value) {
