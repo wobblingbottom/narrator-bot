@@ -331,27 +331,27 @@ if (!userSlots || typeof userSlots !== "object" || Array.isArray(userSlots)) {
   userSlots = {};
 }
 
-if (Object.keys(points).length === 0) {
+if (countPositiveNumericValues(points) === 0) {
   const fallbackPoints = readJson(DEFAULT_POINTS_PATH, {});
-  if (fallbackPoints && typeof fallbackPoints === "object" && !Array.isArray(fallbackPoints) && Object.keys(fallbackPoints).length > 0) {
+  if (fallbackPoints && typeof fallbackPoints === "object" && !Array.isArray(fallbackPoints) && countPositiveNumericValues(fallbackPoints) > 0) {
     points = { ...fallbackPoints };
     writeJson(POINTS_PATH, points);
     console.log(`Seeded ${Object.keys(points).length} user point balance(s) from config defaults.`);
   }
 }
 
-if (Object.keys(characterPoints).length === 0) {
+if (countPositiveNumericValues(characterPoints) === 0) {
   const fallbackCharacterPoints = readJson(DEFAULT_CHARACTER_POINTS_PATH, {});
-  if (fallbackCharacterPoints && typeof fallbackCharacterPoints === "object" && !Array.isArray(fallbackCharacterPoints) && Object.keys(fallbackCharacterPoints).length > 0) {
+  if (fallbackCharacterPoints && typeof fallbackCharacterPoints === "object" && !Array.isArray(fallbackCharacterPoints) && countPositiveNumericValues(fallbackCharacterPoints) > 0) {
     characterPoints = { ...fallbackCharacterPoints };
     writeJson(CHARACTER_POINTS_PATH, characterPoints);
     console.log(`Seeded ${Object.keys(characterPoints).length} character point balance(s) from config defaults.`);
   }
 }
 
-if (Object.keys(userSlots).length === 0) {
+if (countPositiveNumericValues(userSlots) === 0) {
   const fallbackUserSlots = readJson(DEFAULT_USER_SLOTS_PATH, {});
-  if (fallbackUserSlots && typeof fallbackUserSlots === "object" && !Array.isArray(fallbackUserSlots) && Object.keys(fallbackUserSlots).length > 0) {
+  if (fallbackUserSlots && typeof fallbackUserSlots === "object" && !Array.isArray(fallbackUserSlots) && countPositiveNumericValues(fallbackUserSlots) > 0) {
     userSlots = { ...fallbackUserSlots };
     writeJson(USER_SLOTS_PATH, userSlots);
     console.log(`Seeded ${Object.keys(userSlots).length} user slot record(s) from config defaults.`);
