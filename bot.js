@@ -555,13 +555,6 @@ if (mergedCharacterPoints > 0) {
 async function initEconomyDatabase() {
   ensureDir(DATA_DIR);
 
-  const jsonUserPointsCount = countPositiveNumericValues(points);
-  const jsonCharacterPointsCount = countPositiveNumericValues(characterPoints);
-  const jsonUserSlotsCount = countPositiveNumericValues(userSlots);
-  console.log(
-    `[Economy] JSON cache before DB merge: user_points=${jsonUserPointsCount}, character_points=${jsonCharacterPointsCount}, user_slots=${jsonUserSlotsCount}`
-  );
-
   economyDb = new Database(ECONOMY_DB_PATH);
   economyDb.pragma("journal_mode = WAL");
   economyDb.pragma("synchronous = FULL");
@@ -598,21 +591,7 @@ async function initEconomyDatabase() {
 
   importEconomyJsonIntoSqliteIfEmpty();
 
-  const sqliteUserPointsCount = Number(economyDb.prepare("SELECT COUNT(*) AS count FROM user_points WHERE points > 0").get()?.count || 0);
-  const sqliteCharacterPointsCount = Number(economyDb.prepare("SELECT COUNT(*) AS count FROM character_points WHERE points > 0").get()?.count || 0);
-  const sqliteUserSlotsCount = Number(economyDb.prepare("SELECT COUNT(*) AS count FROM user_slots WHERE slots >= ?").get(DEFAULT_CHARACTER_SLOTS)?.count || 0);
-  console.log(
-    `[Economy] SQLite rows after merge: user_points=${sqliteUserPointsCount}, character_points=${sqliteCharacterPointsCount}, user_slots=${sqliteUserSlotsCount}`
-  );
-
   loadEconomyCachesFromSqlite();
-
-  const cacheUserPointsCount = countPositiveNumericValues(points);
-  const cacheCharacterPointsCount = countPositiveNumericValues(characterPoints);
-  const cacheUserSlotsCount = countPositiveNumericValues(userSlots);
-  console.log(
-    `[Economy] In-memory cache after DB load: user_points=${cacheUserPointsCount}, character_points=${cacheCharacterPointsCount}, user_slots=${cacheUserSlotsCount}`
-  );
 
   console.log("Economy DB backend: SQLite");
 }
