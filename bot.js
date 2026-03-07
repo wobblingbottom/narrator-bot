@@ -4751,6 +4751,7 @@ client.on("interactionCreate", async (interaction) => {
           view.lines,
           view.extraComponents
         );
+        return;
       }
 
       if (interaction.commandName === "points") {
@@ -4795,6 +4796,7 @@ client.on("interactionCreate", async (interaction) => {
           [],
           { ephemeral: true }
         );
+        return;
       }
 
       if (interaction.commandName === "setup") {
