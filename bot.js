@@ -323,7 +323,15 @@ function parseScopedStorageKey(key) {
 
   const separatorIndex = key.indexOf(":");
   if (separatorIndex <= 0 || separatorIndex >= key.length - 1) {
-    return null;
+    const trimmed = key.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    return {
+      scopeId: "global",
+      entityId: trimmed
+    };
   }
 
   return {
@@ -1602,6 +1610,45 @@ function getUserSlotsKey(guildId, userId) {
   return `${getScopeId(guildId)}:${userId}`;
 }
 
+function getLegacyEntityKeys(guildId, entityId) {
+  const keys = [];
+  const scopedKey = `${getScopeId(guildId)}:${entityId}`;
+  keys.push(scopedKey);
+
+  if (entityId) {
+    keys.push(`global:${entityId}`);
+    keys.push(String(entityId));
+  }
+
+  return Array.from(new Set(keys));
+}
+
+function getNumericValueWithLegacyFallback(store, guildId, entityId, defaultValue = 0) {
+  const keys = getLegacyEntityKeys(guildId, entityId);
+  for (const key of keys) {
+    const value = store[key];
+    if (Number.isFinite(value)) {
+      return { value, key, keys };
+    }
+  }
+
+  return { value: defaultValue, key: keys[0], keys };
+}
+
+function promoteLegacyNumericValue(store, guildId, entityId, defaultValue = 0) {
+  const result = getNumericValueWithLegacyFallback(store, guildId, entityId, defaultValue);
+  const primaryKey = result.keys[0];
+  if (result.key !== primaryKey) {
+    store[primaryKey] = result.value;
+    for (const key of result.keys.slice(1)) {
+      if (key !== primaryKey) {
+        delete store[key];
+      }
+    }
+  }
+  return result.value;
+}
+
 function getCharacterUpgradeKey(guildId, characterId) {
   return `${getScopeId(guildId)}:${characterId}`;
 }
@@ -1648,7 +1695,7 @@ function getOwnedCharacterCount(guildId, userId) {
 }
 
 function getStoredUserCharacterSlotLimit(guildId, userId) {
-  const rawSlots = userSlots[getUserSlotsKey(guildId, userId)] || DEFAULT_CHARACTER_SLOTS;
+  const rawSlots = promoteLegacyNumericValue(userSlots, guildId, userId, DEFAULT_CHARACTER_SLOTS);
   return Math.min(MAX_CHARACTER_SLOTS, rawSlots);
 }
 
@@ -1698,8 +1745,9 @@ function addPoints(guildId, userId, amount) {
     return;
   }
 
+  const currentPoints = promoteLegacyNumericValue(points, guildId, userId, 0);
   const key = getPointsKey(guildId, userId);
-  points[key] = normalizePoints((points[key] || 0) + amount);
+  points[key] = normalizePoints(currentPoints + amount);
   upsertUserPointsInDb(guildId, userId, points[key]);
   savePoints();
 }
@@ -1709,12 +1757,12 @@ function spendPoints(guildId, userId, amount) {
     return false;
   }
 
-  const key = getPointsKey(guildId, userId);
-  const currentPoints = normalizePoints(points[key] || 0);
+  const currentPoints = normalizePoints(promoteLegacyNumericValue(points, guildId, userId, 0));
   if (currentPoints < amount) {
     return false;
   }
 
+  const key = getPointsKey(guildId, userId);
   points[key] = normalizePoints(currentPoints - amount);
   upsertUserPointsInDb(guildId, userId, points[key]);
   savePoints();
@@ -1764,7 +1812,7 @@ function getRandomMessagePointsReward() {
 }
 
 function getUserPoints(guildId, userId) {
-  return normalizePoints(points[getPointsKey(guildId, userId)] || 0);
+  return normalizePoints(promoteLegacyNumericValue(points, guildId, userId, 0));
 }
 
 function addCharacterPoints(guildId, characterId, amount) {
@@ -1772,14 +1820,15 @@ function addCharacterPoints(guildId, characterId, amount) {
     return;
   }
 
+  const currentPoints = promoteLegacyNumericValue(characterPoints, guildId, characterId, 0);
   const key = getCharacterPointsKey(guildId, characterId);
-  characterPoints[key] = normalizePoints((characterPoints[key] || 0) + amount);
+  characterPoints[key] = normalizePoints(currentPoints + amount);
   upsertCharacterPointsInDb(guildId, characterId, characterPoints[key]);
   saveCharacterPoints();
 }
 
 function getCharacterPoints(guildId, characterId) {
-  return normalizePoints(characterPoints[getCharacterPointsKey(guildId, characterId)] || 0);
+  return normalizePoints(promoteLegacyNumericValue(characterPoints, guildId, characterId, 0));
 }
 
 function spendCharacterPoints(guildId, characterId, amount) {
@@ -1787,12 +1836,12 @@ function spendCharacterPoints(guildId, characterId, amount) {
     return false;
   }
 
-  const key = getCharacterPointsKey(guildId, characterId);
-  const currentPoints = normalizePoints(characterPoints[key] || 0);
+  const currentPoints = normalizePoints(promoteLegacyNumericValue(characterPoints, guildId, characterId, 0));
   if (currentPoints < amount) {
     return false;
   }
 
+  const key = getCharacterPointsKey(guildId, characterId);
   characterPoints[key] = normalizePoints(currentPoints - amount);
   upsertCharacterPointsInDb(guildId, characterId, characterPoints[key]);
   saveCharacterPoints();
