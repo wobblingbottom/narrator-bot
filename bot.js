@@ -3592,6 +3592,15 @@ client.on("interactionCreate", async (interaction) => {
           });
           return;
         }
+
+        await replyComponentsV2(
+          interaction,
+          "Admin",
+          ["That admin subcommand is unavailable right now. Try `/help` and use the listed admin commands."],
+          [],
+          { ephemeral: true }
+        );
+        return;
       }
 
       if (interaction.commandName === "character") {
