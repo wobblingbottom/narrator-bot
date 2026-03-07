@@ -345,8 +345,7 @@ function importEconomyJsonIntoSqliteIfEmpty() {
     return;
   }
 
-  const userPointsCount = Number(economyDb.prepare("SELECT COUNT(*) AS count FROM user_points").get()?.count || 0);
-  if (userPointsCount === 0 && Object.keys(points).length > 0) {
+  if (Object.keys(points).length > 0) {
     const insertUserPoints = economyDb.prepare(`
       INSERT INTO user_points (scope_id, user_id, points)
       VALUES (?, ?, ?)
@@ -364,8 +363,7 @@ function importEconomyJsonIntoSqliteIfEmpty() {
     transaction(Object.entries(points));
   }
 
-  const characterPointsCount = Number(economyDb.prepare("SELECT COUNT(*) AS count FROM character_points").get()?.count || 0);
-  if (characterPointsCount === 0 && Object.keys(characterPoints).length > 0) {
+  if (Object.keys(characterPoints).length > 0) {
     const insertCharacterPoints = economyDb.prepare(`
       INSERT INTO character_points (scope_id, character_id, points)
       VALUES (?, ?, ?)
@@ -383,8 +381,7 @@ function importEconomyJsonIntoSqliteIfEmpty() {
     transaction(Object.entries(characterPoints));
   }
 
-  const userSlotsCount = Number(economyDb.prepare("SELECT COUNT(*) AS count FROM user_slots").get()?.count || 0);
-  if (userSlotsCount === 0 && Object.keys(userSlots).length > 0) {
+  if (Object.keys(userSlots).length > 0) {
     const insertUserSlots = economyDb.prepare(`
       INSERT INTO user_slots (scope_id, user_id, slots)
       VALUES (?, ?, ?)
@@ -402,8 +399,7 @@ function importEconomyJsonIntoSqliteIfEmpty() {
     transaction(Object.entries(userSlots));
   }
 
-  const characterUpgradesCount = Number(economyDb.prepare("SELECT COUNT(*) AS count FROM character_upgrades").get()?.count || 0);
-  if (characterUpgradesCount === 0 && Object.keys(characterUpgrades).length > 0) {
+  if (Object.keys(characterUpgrades).length > 0) {
     const insertUpgrade = economyDb.prepare(`
       INSERT OR IGNORE INTO character_upgrades (scope_id, character_id, upgrade_id)
       VALUES (?, ?, ?)
