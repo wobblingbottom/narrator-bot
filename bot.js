@@ -4837,6 +4837,11 @@ client.on("interactionCreate", async (interaction) => {
             "Webhook send timed out."
           );
 
+          const autoDeleteChannelId = channel.isThread() ? channel.parentId : channel.id;
+          if (autoDeleteChannelId && webhookInfo?.id && webhookInfo?.token) {
+            scheduleWebhookAutoDelete(autoDeleteChannelId, webhookInfo);
+          }
+
           addPoints(interaction.guildId, interaction.user.id, POINTS_PER_CHARACTER_MESSAGE);
 
           const characterPointsCooldownMs = getCharacterPointsCooldownMs(interaction.guildId, selectedCharacterId);
