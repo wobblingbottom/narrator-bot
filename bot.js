@@ -3387,7 +3387,7 @@ client.on("interactionCreate", async (interaction) => {
     };
 
     if (interaction.isAutocomplete()) {
-      const subcommand = interaction.options.getSubcommand();
+      const subcommand = interaction.options.getSubcommand(false);
       if (interaction.commandName === "character" && (subcommand === "pick" || subcommand === "assign" || subcommand === "remove" || subcommand === "edit" || subcommand === "change-id" || subcommand === "delete" || subcommand === "profile")) {
         const focusedValue = interaction.options.getFocused(true);
         if (focusedValue.name === "character") {
