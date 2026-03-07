@@ -57,6 +57,7 @@ const SLOT_BASE_COST = 90;
 const SLOT_COST_STEP = 60;
 const SHOP_PAGE_SIZE = 4;
 const WEBHOOK_AUTO_DELETE_MS = 60000;
+const CHANNEL_WEBHOOK_LIMIT = 15;
 const WEBHOOK_NAME_PREFIX = "Crazyland";
 const WEBHOOK_SLOT_CYCLE_SIZE = 1;
 const WEBHOOK_RECOVERY_MAX_ATTEMPTS = Math.max(5, WEBHOOK_SLOT_CYCLE_SIZE * 4);
@@ -3191,7 +3192,31 @@ async function ensureWebhook(channel, character, botMember, retryDepth = 0) {
     // ignore cleanup failure
   }
 
-  throw new Error("Maximum webhooks reached in this channel and no reusable cached webhook is available. Clear old webhooks or run /character clear-webhooks.");
+  const usage = await getWebhookUsageForChannel(channel, botMember).catch(() => ({ total: 0, botOwned: 0 }));
+  const fullError = new Error("Channel webhook slots are full.");
+  fullError.code = "WEBHOOK_SLOTS_FULL";
+  fullError.webhookUsage = usage;
+  throw fullError;
+}
+
+async function getWebhookUsageForChannel(channel, botMember) {
+  const targetChannel = channel?.isThread?.() ? channel.parent : channel;
+  if (!targetChannel || typeof targetChannel.fetchWebhooks !== "function") {
+    return { total: 0, botOwned: 0 };
+  }
+
+  const fetchedWebhooks = await targetChannel.fetchWebhooks();
+  let botOwned = 0;
+  for (const webhook of fetchedWebhooks.values()) {
+    if (botMember?.id && webhook.owner?.id === botMember.id) {
+      botOwned += 1;
+    }
+  }
+
+  return {
+    total: fetchedWebhooks.size,
+    botOwned
+  };
 }
 
 // Generate Discord-style profile image
@@ -4709,6 +4734,25 @@ client.on("interactionCreate", async (interaction) => {
           );
         } catch (error) {
           console.error("Webhook setup failed:", error);
+
+          if (error?.code === "WEBHOOK_SLOTS_FULL") {
+            const usage = error?.webhookUsage || { total: 0, botOwned: 0 };
+            const safeTotal = Number.isFinite(usage.total) ? usage.total : 0;
+            const safeBotOwned = Number.isFinite(usage.botOwned) ? usage.botOwned : 0;
+
+            await editComponentsV2(
+              interaction,
+              null,
+              [
+                `${UNSUCCESSFUL_EMOJI_RAW} This channel's webhook slots are currently full.`,
+                "Please wait for slots to free up and try `/say` again.",
+                `Webhooks in use right now: **${safeTotal}/${CHANNEL_WEBHOOK_LIMIT}** (Bot-owned: **${safeBotOwned}**)`
+              ],
+              []
+            );
+            return;
+          }
+
           await editComponentsV2(
             interaction,
             null,
