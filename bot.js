@@ -1655,14 +1655,16 @@ function installInteractionAckGuard(interaction, timeoutMs = 2000) {
   return () => clearTimeout(timer);
 }
 
-function logMessage(userId, characterName, message, channelId, guildId) {
+function logMessage(userId, characterName, message, channelId, guildId, metadata = null) {
+  const safeMetadata = metadata && typeof metadata === "object" ? metadata : {};
   const logEntry = {
     timestamp: new Date().toISOString(),
     userId: userId,
     characterName: characterName,
     message: message,
     channelId: channelId,
-    guildId: guildId
+    guildId: guildId,
+    ...safeMetadata
   };
   messageLogs.push(logEntry);
   // Keep last 1000 messages
@@ -2364,6 +2366,7 @@ function buildHelpView(guildId, userId, isAdmin, page = 0) {
         `${BULLET_EMOJI_RAW} \`/premium\` - Open premium purchase instructions`,
         `${BULLET_EMOJI_RAW} \`/tutorial\` - Step-by-step getting started guide`,
         `${BULLET_EMOJI_RAW} \`/say\` - Speak as your selected character (optional image + reply_to message ID)`,
+        `${BULLET_EMOJI_RAW} \`/say-edit\` - Edit one of your sent /say messages by message ID`,
         `${BULLET_EMOJI_RAW} \`/points\` - View points`,
         `${BULLET_EMOJI_RAW} \`/leaderboard\` - View rankings`
       ]
@@ -2480,6 +2483,7 @@ function buildTutorialView(guildId, userId, page = 0) {
         "**Start roleplaying with /say**",
         `${BULLET_EMOJI_RAW} Run \`/say message:<text>\` to send as your picked character.`,
         `${BULLET_EMOJI_RAW} Optional: add \`image\` and \`reply_to\` message ID.`,
+        `${BULLET_EMOJI_RAW} Need to fix a typo? Use \`/say-edit message_id:<id> message:<text>\`.`,
         `${BULLET_EMOJI_RAW} You earn points from normal chat and from \`/say\`.`
       ]
     },
@@ -2996,6 +3000,23 @@ async function registerCommands() {
         .setRequired(false)
     );
 
+  const sayEditCommand = new SlashCommandBuilder()
+    .setName("say-edit")
+    .setDescription("Edit one of your previously sent /say messages")
+    .addStringOption((option) =>
+      option
+        .setName("message_id")
+        .setDescription("Message ID to edit")
+        .setRequired(true)
+    )
+    .addStringOption((option) =>
+      option
+        .setName("message")
+        .setDescription("Updated message content")
+        .setRequired(true)
+        .setMaxLength(2000)
+    );
+
   const setupCommand = new SlashCommandBuilder()
     .setName("setup")
     .setDescription("Configure bot settings (admin only)")
@@ -3145,6 +3166,7 @@ async function registerCommands() {
     userCommand.toJSON(),
     adminCommand.toJSON(),
     sayCommand.toJSON(),
+    sayEditCommand.toJSON(),
     setupCommand.toJSON(),
     botSayCommand.toJSON(),
     helpCommand.toJSON(),
@@ -4996,7 +5018,7 @@ client.on("interactionCreate", async (interaction) => {
             webhookOptions.threadId = channel.id;
           }
 
-          await withTimeout(
+          const sentMessage = await withTimeout(
             webhookClient.send(webhookOptions),
             12000,
             "Webhook send timed out."
@@ -5015,8 +5037,17 @@ client.on("interactionCreate", async (interaction) => {
             addCharacterPoints(interaction.guildId, selectedCharacterId, characterReward);
           }
 
-          // Log the message
-          logMessage(interaction.user.id, character.name, message, interaction.channelId, interaction.guildId);
+          // Log the message and webhook context so /say-edit can target it later.
+          logMessage(interaction.user.id, character.name, message, interaction.channelId, interaction.guildId, {
+            messageId: sentMessage?.id || null,
+            webhookId: webhookInfo?.id || null,
+            webhookToken: webhookInfo?.token || null,
+            characterId: selectedCharacterId,
+            threadId: channel.isThread() ? channel.id : null,
+            source: "say"
+          });
+
+          const sentMessageIdSuffix = sentMessage?.id ? ` Message ID: \`${sentMessage.id}\`.` : "";
 
           await editComponentsV2(
             interaction,
@@ -5025,7 +5056,8 @@ client.on("interactionCreate", async (interaction) => {
               `Sent as **${character.name}**.` +
                 (webhookInfo.fallbackReuse
                   ? " Reused an existing webhook in this channel because the webhook limit is full."
-                  : "")
+                  : "") +
+                sentMessageIdSuffix
             ],
             []
           );
@@ -5041,6 +5073,152 @@ client.on("interactionCreate", async (interaction) => {
           } catch (replyError) {
             console.error("Failed to send error reply:", replyError);
           }
+        }
+
+        return;
+      }
+
+      if (interaction.commandName === "say-edit") {
+        await interaction.deferReply({ ephemeral: true, flags: 32768 });
+
+        if (!interaction.inGuild()) {
+          await editComponentsV2(
+            interaction,
+            null,
+            ["This command can only be used in a server."],
+            []
+          );
+          return;
+        }
+
+        const messageIdRaw = interaction.options.getString("message_id", true);
+        const messageId = String(messageIdRaw || "").trim();
+
+        if (!/^\d{17,20}$/.test(messageId)) {
+          await editComponentsV2(
+            interaction,
+            null,
+            [`${UNSUCCESSFUL_EMOJI_RAW} Message ID must be a valid Discord message ID.`],
+            []
+          );
+          return;
+        }
+
+        const rawMessage = interaction.options.getString("message", true);
+        const updatedMessage = formatRoleplayMessage(rawMessage);
+        const targetLogEntry = [...messageLogs]
+          .reverse()
+          .find((entry) => entry?.guildId === interaction.guildId && entry?.messageId === messageId);
+
+        if (!targetLogEntry) {
+          await editComponentsV2(
+            interaction,
+            null,
+            [
+              `${UNSUCCESSFUL_EMOJI_RAW} I couldn't find that message in tracked /say logs.`,
+              "Only /say messages sent after this update can be edited."
+            ],
+            []
+          );
+          return;
+        }
+
+        const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
+        if (!isAdmin && targetLogEntry.userId !== interaction.user.id) {
+          await editComponentsV2(
+            interaction,
+            null,
+            ["You can only edit messages sent from your own account."],
+            []
+          );
+          return;
+        }
+
+        const webhookId = String(targetLogEntry.webhookId || "").trim();
+        const webhookToken = String(targetLogEntry.webhookToken || "").trim();
+
+        if (!webhookId || !webhookToken) {
+          await editComponentsV2(
+            interaction,
+            null,
+            [
+              `${UNSUCCESSFUL_EMOJI_RAW} This message does not have editable webhook data in logs.`,
+              "Try sending a new /say message and editing that one."
+            ],
+            []
+          );
+          return;
+        }
+
+        try {
+          const webhookClient = new WebhookClient({
+            id: webhookId,
+            token: webhookToken
+          });
+
+          const webhookEditOptions = {
+            content: updatedMessage,
+            allowedMentions: { parse: [] }
+          };
+
+          if (/^\d{17,20}$/.test(String(targetLogEntry.threadId || ""))) {
+            webhookEditOptions.threadId = targetLogEntry.threadId;
+          }
+
+          await withTimeout(
+            webhookClient.editMessage(messageId, webhookEditOptions),
+            10000,
+            "Webhook edit timed out."
+          );
+
+          logMessage(
+            interaction.user.id,
+            "Message Edit",
+            `Edited /say message ${messageId}`,
+            interaction.channelId,
+            interaction.guildId,
+            { source: "say-edit", targetMessageId: messageId }
+          );
+
+          await editComponentsV2(
+            interaction,
+            null,
+            [`Updated message \`${messageId}\` successfully.`],
+            []
+          );
+        } catch (error) {
+          console.error("Webhook edit error:", error);
+          const apiErrorCode = error?.rawError?.code;
+
+          if (apiErrorCode === 10008) {
+            await editComponentsV2(
+              interaction,
+              null,
+              [`${UNSUCCESSFUL_EMOJI_RAW} Message not found. It may have been deleted.`],
+              []
+            );
+            return;
+          }
+
+          if (apiErrorCode === 10015) {
+            await editComponentsV2(
+              interaction,
+              null,
+              [
+                `${UNSUCCESSFUL_EMOJI_RAW} Webhook no longer exists, so that message can't be edited.`,
+                "Send a new /say message first if you need to post a correction."
+              ],
+              []
+            );
+            return;
+          }
+
+          await editComponentsV2(
+            interaction,
+            null,
+            [`Failed to edit message. ${error?.message || ""}`.trim()],
+            []
+          );
         }
 
         return;
@@ -6160,6 +6338,7 @@ client.on("interactionCreate", async (interaction) => {
           { name: "/premium", desc: "Get premium purchase link + steps" },
           { name: "/tutorial", desc: "Step-by-step guide for using the bot" },
           { name: "/say [message] [image] [reply_to]", desc: "Send message as your character with optional image/reply" },
+          { name: "/say-edit [message_id] [message]", desc: "Edit your tracked /say message by message ID" },
           { name: "/points", desc: "View your user/character points" },
           { name: "/leaderboard [type] [limit]", desc: "View user or character rankings" }
         ];
