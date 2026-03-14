@@ -37,6 +37,7 @@ const SELECTIONS_PATH = path.join(DATA_DIR, "selections.json");
 const WEBHOOKS_PATH = path.join(DATA_DIR, "webhooks.json");
 const LOGS_CHANNEL_PATH = path.join(DATA_DIR, "logsChannel.json");
 const ADMIN_ROLES_PATH = path.join(DATA_DIR, "adminRoles.json");
+const SAY_CHANNELS_PATH = path.join(DATA_DIR, "sayChannels.json");
 const MESSAGE_LOGS_PATH = path.join(DATA_DIR, "messageLogs.json");
 const USERS_PROFILES_PATH = path.join(DATA_DIR, "userProfiles.json");
 const POINTS_PATH = path.join(DATA_DIR, "points.json");
@@ -303,6 +304,7 @@ let selections = readJson(SELECTIONS_PATH, {});
 let webhooks = readJson(WEBHOOKS_PATH, {});
 let logsChannelId = readJson(LOGS_CHANNEL_PATH, null);
 let adminRoles = readJson(ADMIN_ROLES_PATH, {});
+let sayChannels = readJson(SAY_CHANNELS_PATH, {});
 let messageLogs = readJson(MESSAGE_LOGS_PATH, []);
 let userProfiles = readJson(USERS_PROFILES_PATH, {});
 let points = readJson(POINTS_PATH, {});
@@ -318,6 +320,10 @@ if (!Array.isArray(shopRoleItems)) {
 
 if (!adminRoles || typeof adminRoles !== "object" || Array.isArray(adminRoles)) {
   adminRoles = {};
+}
+
+if (!sayChannels || typeof sayChannels !== "object" || Array.isArray(sayChannels)) {
+  sayChannels = {};
 }
 
 if (!points || typeof points !== "object" || Array.isArray(points)) {
@@ -983,6 +989,10 @@ function saveAdminRoles() {
   writeJson(ADMIN_ROLES_PATH, adminRoles);
 }
 
+function saveSayChannels() {
+  writeJson(SAY_CHANNELS_PATH, sayChannels);
+}
+
 function saveMessageLogs() {
   writeJson(MESSAGE_LOGS_PATH, messageLogs);
 }
@@ -1104,6 +1114,61 @@ function removeAdminRoleId(guildId, roleId) {
     delete adminRoles[key];
   }
   saveAdminRoles();
+}
+
+function getSayAllowedChannelIds(guildId) {
+  if (!guildId) {
+    return [];
+  }
+
+  const key = getScopeId(guildId);
+  const value = sayChannels[key];
+  return Array.isArray(value)
+    ? value.filter((channelId) => typeof channelId === "string" && /^\d{17,22}$/.test(channelId))
+    : [];
+}
+
+function setSayAllowedChannelIds(guildId, channelIds) {
+  if (!guildId) {
+    return;
+  }
+
+  const key = getScopeId(guildId);
+  const normalizedIds = Array.from(new Set(
+    (Array.isArray(channelIds) ? channelIds : [])
+      .map((channelId) => String(channelId || "").trim())
+      .filter((channelId) => /^\d{17,22}$/.test(channelId))
+  ));
+
+  if (normalizedIds.length > 0) {
+    sayChannels[key] = normalizedIds;
+  } else {
+    delete sayChannels[key];
+  }
+
+  saveSayChannels();
+}
+
+function isSayAllowedInChannel(guildId, channel) {
+  if (!guildId || !channel) {
+    return false;
+  }
+
+  const allowedChannelIds = getSayAllowedChannelIds(guildId);
+  if (allowedChannelIds.length === 0) {
+    return true;
+  }
+
+  const allowedSet = new Set(allowedChannelIds);
+  if (allowedSet.has(channel.id)) {
+    return true;
+  }
+
+  if (channel.isThread?.() && channel.parentId && allowedSet.has(channel.parentId)) {
+    return true;
+  }
+
+  return false;
 }
 
 function hasAdminAccess(interaction) {
@@ -1319,10 +1384,11 @@ function buildRoleShopAdminPanel(guildId, statusLine = null) {
 function buildSetupAdminPanel(guildId, statusLine = null) {
   const roleIds = getAdminRoleIds(guildId);
   const logsChannel = getLogsChannelIdForGuild(guildId);
+  const allowedSayChannels = getSayAllowedChannelIds(guildId);
 
   const components = [
     { type: 10, content: "## Setup Manager" },
-    { type: 10, content: "Manage admin roles and logs channel for this server." },
+    { type: 10, content: "Manage admin roles, logs channel, and /say allowed channels for this server." },
     { type: 14, divider: true, spacing: 1 }
   ];
 
@@ -1386,6 +1452,34 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
         style: 2,
         label: "Refresh",
         custom_id: "setup:panel:refresh"
+      }
+    ]
+  });
+
+  components.push({ type: 14, divider: true, spacing: 1 });
+  components.push({ type: 10, content: "### /say Allowed Channels" });
+  if (allowedSayChannels.length === 0) {
+    components.push({ type: 10, content: `${BULLET_EMOJI_RAW} Current: All channels allowed` });
+  } else {
+    for (const channelId of allowedSayChannels.slice(0, 25)) {
+      components.push({ type: 10, content: `${BULLET_EMOJI_RAW} <#${channelId}>` });
+    }
+  }
+  components.push({ type: 10, content: `${BULLET_EMOJI_RAW} Threads inherit permission from their parent channel.` });
+  components.push({
+    type: 1,
+    components: [
+      {
+        type: 2,
+        style: 2,
+        label: "Set /say Channels",
+        custom_id: "setup:panel:set-say-channels"
+      },
+      {
+        type: 2,
+        style: 2,
+        label: "Clear /say Channels",
+        custom_id: "setup:panel:clear-say-channels"
       }
     ]
   });
@@ -2395,7 +2489,7 @@ function buildHelpView(guildId, userId, isAdmin, page = 0) {
         `${BULLET_EMOJI_RAW} \`/character create\` / \`/character delete\` - Manage characters`,
         `${BULLET_EMOJI_RAW} \`/character change-id\` - Change character IDs`,
         `${BULLET_EMOJI_RAW} \`/admin user edit\` - Manage user profile + characters`,
-        `${BULLET_EMOJI_RAW} \`/setup panel\` - Manage admin roles + logs channel`,
+        `${BULLET_EMOJI_RAW} \`/setup panel\` - Manage admin roles, logs channel, and /say channels`,
         `${BULLET_EMOJI_RAW} \`/setup setup-logs-channel\` - Quick set logs channel`,
         `${BULLET_EMOJI_RAW} \`/setup add-points\` - Add user/character wallet points`,
         `${BULLET_EMOJI_RAW} \`/setup add-role-shop-item\` - Add role item to shop`,
@@ -4780,6 +4874,24 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
+        if (!isSayAllowedInChannel(interaction.guildId, channel)) {
+          const allowedChannelIds = getSayAllowedChannelIds(interaction.guildId);
+          const allowedSummary = allowedChannelIds.slice(0, 8).map((channelId) => `<#${channelId}>`).join(", ");
+
+          await editComponentsV2(
+            interaction,
+            null,
+            [
+              `${UNSUCCESSFUL_EMOJI_RAW} /say is not allowed in this channel.`,
+              allowedChannelIds.length > 0
+                ? `Allowed channels: ${allowedSummary}${allowedChannelIds.length > 8 ? ", ..." : ""}`
+                : "No /say channels are configured for this server."
+            ],
+            []
+          );
+          return;
+        }
+
         const selectedCharacterId = getSelectedCharacterId(interaction.guildId, interaction.user.id);
         if (!selectedCharacterId) {
           await editComponentsV2(
@@ -5206,6 +5318,7 @@ client.on("interactionCreate", async (interaction) => {
               null,
               [
                 `${UNSUCCESSFUL_EMOJI_RAW} Webhook no longer exists, so that message can't be edited.`,
+                "You only have 60 seconds to edit your message for corrections after sending it.",
                 "Send a new /say message first if you need to post a correction."
               ],
               []
@@ -6061,6 +6174,29 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
+        if (action === "set-say-channels") {
+          await interaction.reply({
+            content: "Choose the channels where /say is allowed. If no channels are configured, /say is allowed everywhere.",
+            ephemeral: true,
+            components: [
+              {
+                type: 1,
+                components: [
+                  {
+                    type: 8,
+                    custom_id: "setup:panel:set-say-channels:select",
+                    placeholder: "Select channels where /say is allowed",
+                    min_values: 1,
+                    max_values: 25,
+                    channel_types: [0, 5, 15]
+                  }
+                ]
+              }
+            ]
+          });
+          return;
+        }
+
         if (action === "clear-logs") {
           setLogsChannelIdForGuild(interaction.guildId, null);
           await interaction.update({
@@ -6068,6 +6204,18 @@ client.on("interactionCreate", async (interaction) => {
             components: buildSetupAdminPanel(
               interaction.guildId,
               `<:success:1479234774861221898> Logs channel cleared.`
+            )
+          });
+          return;
+        }
+
+        if (action === "clear-say-channels") {
+          setSayAllowedChannelIds(interaction.guildId, []);
+          await interaction.update({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `<:success:1479234774861221898> Cleared /say channel restrictions. /say is now allowed in all channels.`
             )
           });
           return;
@@ -6349,7 +6497,7 @@ client.on("interactionCreate", async (interaction) => {
           { name: "/character delete [character]", desc: "Delete character" },
           { name: "/character change-id [character] [new-id]", desc: "Change character ID" },
           { name: "/admin user edit [user]", desc: "Manage user profile + character actions" },
-          { name: "/setup panel", desc: "Manage admin roles + logs channel" },
+          { name: "/setup panel", desc: "Manage admin roles, logs channel, and /say channels" },
           { name: "/setup add-points ...", desc: "Add user/character wallet points" },
           { name: "/setup add-role-shop-item", desc: "Open role shop item manager" },
           { name: "/character clear-webhooks", desc: "Clear webhook cache" },
@@ -6562,6 +6710,56 @@ client.on("interactionCreate", async (interaction) => {
         components: buildSetupAdminPanel(
           interaction.guildId,
           `<:success:1479234774861221898> Logs channel set to <#${channel.id}>.`
+        ),
+        ephemeral: true
+      });
+      return;
+    }
+
+    if (
+      interaction.customId === "setup:panel:set-say-channels:select" &&
+      Array.isArray(interaction.values)
+    ) {
+      if (!interaction.inGuild() || !hasAdminAccess(interaction)) {
+        await acknowledgeInteractionSilently(interaction);
+        return;
+      }
+
+      const selectedChannelIds = interaction.values
+        .map((channelId) => String(channelId || "").trim())
+        .filter((channelId) => /^\d{17,22}$/.test(channelId));
+
+      const validChannelIds = selectedChannelIds.filter((channelId) => {
+        const channel = interaction.guild.channels.cache.get(channelId);
+        return Boolean(
+          channel
+          && (channel.type === ChannelType.GuildText
+            || channel.type === ChannelType.GuildAnnouncement
+            || channel.type === ChannelType.GuildForum)
+        );
+      });
+
+      if (validChannelIds.length === 0) {
+        await interaction.reply({
+          flags: 32768,
+          components: buildSetupAdminPanel(
+            interaction.guildId,
+            `${UNSUCCESSFUL_EMOJI_RAW} Invalid channel selection.`
+          ),
+          ephemeral: true
+        });
+        return;
+      }
+
+      setSayAllowedChannelIds(interaction.guildId, validChannelIds);
+      const summary = validChannelIds.slice(0, 4).map((channelId) => `<#${channelId}>`).join(", ");
+      const suffix = validChannelIds.length > 4 ? ` and ${validChannelIds.length - 4} more` : "";
+
+      await interaction.reply({
+        flags: 32768,
+        components: buildSetupAdminPanel(
+          interaction.guildId,
+          `<:success:1479234774861221898> /say is now allowed in ${summary}${suffix}.`
         ),
         ephemeral: true
       });
