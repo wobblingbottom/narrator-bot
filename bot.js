@@ -1688,6 +1688,43 @@ function getCharacterById(characterId, guildId) {
   return getCharactersForGuild(guildId).find((character) => character.id === characterId);
 }
 
+function getCharacterDisplayLabel(character) {
+  const id = String(character?.id || "").trim();
+  const name = String(character?.name || "").trim();
+
+  if (!id) {
+    return name || "Unknown character";
+  }
+
+  const baseLabel = `${name || id} (${id})`;
+  if (baseLabel.length <= 100) {
+    return baseLabel;
+  }
+
+  return `${baseLabel.slice(0, 97)}...`;
+}
+
+function getCharacterAutocompleteChoices(guildId, focusedText = "", characterFilter = null) {
+  const normalizedFocused = String(focusedText || "").toLowerCase().trim();
+
+  return getCharactersForGuild(guildId)
+    .filter((character) => (typeof characterFilter === "function" ? characterFilter(character) : true))
+    .filter((character) => {
+      if (!normalizedFocused) {
+        return true;
+      }
+
+      const characterId = String(character.id || "").toLowerCase();
+      const characterName = String(character.name || "").toLowerCase();
+      return characterId.includes(normalizedFocused) || characterName.includes(normalizedFocused);
+    })
+    .slice(0, 25)
+    .map((character) => ({
+      name: getCharacterDisplayLabel(character),
+      value: character.id
+    }));
+}
+
 function getScopeId(guildId) {
   return guildId || "global";
 }
@@ -2633,7 +2670,7 @@ async function registerCommands() {
         .addStringOption((option) =>
           option
             .setName("character")
-            .setDescription("Character ID to pick")
+            .setDescription("Character to pick")
             .setRequired(true)
             .setAutocomplete(true)
         )
@@ -2645,7 +2682,7 @@ async function registerCommands() {
         .addStringOption((option) =>
           option
             .setName("character")
-            .setDescription("Character ID to assign")
+            .setDescription("Character to assign")
             .setRequired(true)
             .setAutocomplete(true)
         )
@@ -2818,7 +2855,7 @@ async function registerCommands() {
         .addStringOption((option) =>
           option
             .setName("character")
-            .setDescription("Character ID to remove")
+            .setDescription("Character to remove")
             .setRequired(true)
             .setAutocomplete(true)
         )
@@ -2847,7 +2884,7 @@ async function registerCommands() {
         .addStringOption((option) =>
           option
             .setName("character")
-            .setDescription("Character ID to edit")
+            .setDescription("Character to edit")
             .setRequired(true)
             .setAutocomplete(true)
         )
@@ -2859,7 +2896,7 @@ async function registerCommands() {
         .addStringOption((option) =>
           option
             .setName("character")
-            .setDescription("Current character ID")
+            .setDescription("Current character")
             .setRequired(true)
             .setAutocomplete(true)
         )
@@ -2877,7 +2914,7 @@ async function registerCommands() {
         .addStringOption((option) =>
           option
             .setName("character")
-            .setDescription("Character ID to view")
+            .setDescription("Character to view")
             .setRequired(true)
             .setAutocomplete(true)
         )
@@ -2889,7 +2926,7 @@ async function registerCommands() {
         .addStringOption((option) =>
           option
             .setName("character")
-            .setDescription("Character ID to delete")
+            .setDescription("Character to delete")
             .setRequired(true)
             .setAutocomplete(true)
         )
@@ -2998,7 +3035,7 @@ async function registerCommands() {
         .addStringOption((option) =>
           option
             .setName("character")
-            .setDescription("Target character ID (for character wallet)")
+            .setDescription("Target character (for character wallet)")
             .setRequired(false)
             .setAutocomplete(true)
         )
@@ -3066,7 +3103,7 @@ async function registerCommands() {
     .addStringOption((option) =>
       option
         .setName("character")
-        .setDescription("Character ID (defaults to selected character)")
+        .setDescription("Character (defaults to selected character)")
         .setRequired(false)
         .setAutocomplete(true)
     );
@@ -3607,60 +3644,46 @@ client.on("interactionCreate", async (interaction) => {
           
           // For edit command, only show user's own characters (unless admin)
           if (subcommand === "pick") {
-            choices = getCharactersForGuild(interaction.guildId)
-              .filter((c) => getAssignedUserId(interaction.guildId, c.id) === interaction.user.id)
-              .map((c) => c.id)
-              .filter((id) => id.toLowerCase().includes(focusedValue.value.toLowerCase()));
+            choices = getCharacterAutocompleteChoices(
+              interaction.guildId,
+              focusedValue.value,
+              (character) => getAssignedUserId(interaction.guildId, character.id) === interaction.user.id
+            );
           } else if (subcommand === "edit") {
             const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
             if (isAdmin) {
               // Admins see all characters
-              choices = getCharactersForGuild(interaction.guildId)
-                .map((c) => c.id)
-                .filter((id) => id.toLowerCase().includes(focusedValue.value.toLowerCase()));
+              choices = getCharacterAutocompleteChoices(interaction.guildId, focusedValue.value);
             } else {
               // Regular users see only their assigned characters
-              choices = getCharactersForGuild(interaction.guildId)
-                .filter((c) => getAssignedUserId(interaction.guildId, c.id) === interaction.user.id)
-                .map((c) => c.id)
-                .filter((id) => id.toLowerCase().includes(focusedValue.value.toLowerCase()));
+              choices = getCharacterAutocompleteChoices(
+                interaction.guildId,
+                focusedValue.value,
+                (character) => getAssignedUserId(interaction.guildId, character.id) === interaction.user.id
+              );
             }
           } else {
             // For other commands, show all characters
-            choices = getCharactersForGuild(interaction.guildId)
-              .map((c) => c.id)
-              .filter((id) => id.toLowerCase().includes(focusedValue.value.toLowerCase()));
+            choices = getCharacterAutocompleteChoices(interaction.guildId, focusedValue.value);
           }
           
-          await interaction.respond(
-            choices.slice(0, 25).map((choice) => ({ name: choice, value: choice }))
-          );
+          await interaction.respond(choices);
         }
       }
 
       if (interaction.commandName === "setup" && subcommand === "add-points") {
         const focusedValue = interaction.options.getFocused(true);
         if (focusedValue.name === "character") {
-          const choices = getCharactersForGuild(interaction.guildId)
-            .map((character) => character.id)
-            .filter((id) => id.toLowerCase().includes(focusedValue.value.toLowerCase()));
-
-          await interaction.respond(
-            choices.slice(0, 25).map((choice) => ({ name: choice, value: choice }))
-          );
+          const choices = getCharacterAutocompleteChoices(interaction.guildId, focusedValue.value);
+          await interaction.respond(choices);
         }
       }
 
       if (interaction.commandName === "wallet") {
         const focusedValue = interaction.options.getFocused(true);
         if (focusedValue.name === "character") {
-          const choices = getCharactersForGuild(interaction.guildId)
-            .map((character) => character.id)
-            .filter((id) => id.toLowerCase().includes(focusedValue.value.toLowerCase()));
-
-          await interaction.respond(
-            choices.slice(0, 25).map((choice) => ({ name: choice, value: choice }))
-          );
+          const choices = getCharacterAutocompleteChoices(interaction.guildId, focusedValue.value);
+          await interaction.respond(choices);
         }
       }
       return;
