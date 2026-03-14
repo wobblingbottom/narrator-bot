@@ -1397,6 +1397,19 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
     components.push({ type: 14, divider: true, spacing: 1 });
   }
 
+  components.push({
+    type: 1,
+    components: [
+      {
+        type: 2,
+        style: 2,
+        label: "Refresh Panel",
+        custom_id: "setup:panel:refresh"
+      }
+    ]
+  });
+  components.push({ type: 14, divider: true, spacing: 1 });
+
   components.push({ type: 10, content: "### Admin Roles" });
   if (roleIds.length === 0) {
     components.push({ type: 10, content: `${BULLET_EMOJI_RAW} No admin roles configured.` });
@@ -1446,12 +1459,6 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
         style: 2,
         label: "Clear Logs Channel",
         custom_id: "setup:panel:clear-logs"
-      },
-      {
-        type: 2,
-        style: 2,
-        label: "Refresh",
-        custom_id: "setup:panel:refresh"
       }
     ]
   });
@@ -6073,6 +6080,89 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
+        if (action.startsWith("remove-admin-role-confirm:")) {
+          const roleId = action.slice("remove-admin-role-confirm:".length);
+          const role = roleId ? interaction.guild.roles.cache.get(roleId) : null;
+
+          if (!roleId || !getAdminRoleIds(interaction.guildId).includes(roleId)) {
+            await interaction.update({
+              flags: 32768,
+              components: buildSetupAdminPanel(
+                interaction.guildId,
+                `${UNSUCCESSFUL_EMOJI_RAW} That role is not currently configured.`
+              )
+            });
+            return;
+          }
+
+          removeAdminRoleId(interaction.guildId, roleId);
+          await interaction.update({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `<:success:1479234774861221898> Removed ${role ? `<@&${role.id}>` : `role \`${roleId}\``} from admin roles.`
+            )
+          });
+          return;
+        }
+
+        if (action === "remove-admin-role-cancel") {
+          await interaction.update({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} Admin role removal cancelled.`
+            )
+          });
+          return;
+        }
+
+        if (action === "clear-logs-confirm") {
+          setLogsChannelIdForGuild(interaction.guildId, null);
+          await interaction.update({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `<:success:1479234774861221898> Logs channel cleared.`
+            )
+          });
+          return;
+        }
+
+        if (action === "clear-logs-cancel") {
+          await interaction.update({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} Logs channel clear cancelled.`
+            )
+          });
+          return;
+        }
+
+        if (action === "clear-say-channels-confirm") {
+          setSayAllowedChannelIds(interaction.guildId, []);
+          await interaction.update({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `<:success:1479234774861221898> Cleared /say channel restrictions. /say is now allowed in all channels.`
+            )
+          });
+          return;
+        }
+
+        if (action === "clear-say-channels-cancel") {
+          await interaction.update({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} /say channel clear cancelled.`
+            )
+          });
+          return;
+        }
+
         if (action === "add-admin-role") {
           await interaction.reply({
             content: "Choose a role from the dropdown.",
@@ -6198,24 +6288,66 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "clear-logs") {
-          setLogsChannelIdForGuild(interaction.guildId, null);
           await interaction.update({
             flags: 32768,
-            components: buildSetupAdminPanel(
-              interaction.guildId,
-              `<:success:1479234774861221898> Logs channel cleared.`
+            components: buildComponentsBox(
+              "Clear Logs Channel",
+              [
+                "Are you sure you want to clear the configured logs channel?",
+                "This will remove the current logs channel setting for this server."
+              ],
+              [
+                {
+                  type: 1,
+                  components: [
+                    {
+                      type: 2,
+                      style: 4,
+                      label: "Confirm Clear",
+                      custom_id: "setup:panel:clear-logs-confirm"
+                    },
+                    {
+                      type: 2,
+                      style: 2,
+                      label: "Cancel",
+                      custom_id: "setup:panel:clear-logs-cancel"
+                    }
+                  ]
+                }
+              ]
             )
           });
           return;
         }
 
         if (action === "clear-say-channels") {
-          setSayAllowedChannelIds(interaction.guildId, []);
           await interaction.update({
             flags: 32768,
-            components: buildSetupAdminPanel(
-              interaction.guildId,
-              `<:success:1479234774861221898> Cleared /say channel restrictions. /say is now allowed in all channels.`
+            components: buildComponentsBox(
+              "Clear /say Channels",
+              [
+                "Are you sure you want to clear all /say channel restrictions?",
+                "After this, /say will be allowed in all channels for this server."
+              ],
+              [
+                {
+                  type: 1,
+                  components: [
+                    {
+                      type: 2,
+                      style: 4,
+                      label: "Confirm Clear",
+                      custom_id: "setup:panel:clear-say-channels-confirm"
+                    },
+                    {
+                      type: 2,
+                      style: 2,
+                      label: "Cancel",
+                      custom_id: "setup:panel:clear-say-channels-cancel"
+                    }
+                  ]
+                }
+              ]
             )
           });
           return;
@@ -6668,12 +6800,33 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      removeAdminRoleId(interaction.guildId, roleId);
       await interaction.reply({
         flags: 32768,
-        components: buildSetupAdminPanel(
-          interaction.guildId,
-          `<:success:1479234774861221898> Removed ${role ? `<@&${role.id}>` : `role \`${roleId}\``} from admin roles.`
+        components: buildComponentsBox(
+          "Remove Admin Role",
+          [
+            `Are you sure you want to remove ${role ? `<@&${role.id}>` : `role \`${roleId}\``} from admin roles?`,
+            "This will remove its setup-panel admin access immediately."
+          ],
+          [
+            {
+              type: 1,
+              components: [
+                {
+                  type: 2,
+                  style: 4,
+                  label: "Confirm Remove",
+                  custom_id: `setup:panel:remove-admin-role-confirm:${roleId}`
+                },
+                {
+                  type: 2,
+                  style: 2,
+                  label: "Cancel",
+                  custom_id: "setup:panel:remove-admin-role-cancel"
+                }
+              ]
+            }
+          ]
         ),
         ephemeral: true
       });
