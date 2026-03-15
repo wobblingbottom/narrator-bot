@@ -5563,36 +5563,37 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
-        const webhookId = String(targetLogEntry.webhookId || "").trim();
-        const webhookToken = String(targetLogEntry.webhookToken || "").trim();
-
-        if (!webhookId || !webhookToken) {
-          await editComponentsV2(
-            interaction,
-            null,
-            [
-              `${UNSUCCESSFUL_EMOJI_RAW} This message does not have webhook data in logs and cannot be deleted this way.`,
-              "Ask a server admin to remove it manually."
-            ],
-            []
-          );
-          return;
-        }
+        const targetChannelId = /^\d{17,20}$/.test(String(targetLogEntry.threadId || ""))
+          ? targetLogEntry.threadId
+          : targetLogEntry.channelId;
 
         try {
-          const webhookClient = new WebhookClient({
-            id: webhookId,
-            token: webhookToken
-          });
+          const targetChannel = await client.channels.fetch(targetChannelId).catch(() => null);
+          if (!targetChannel) {
+            await editComponentsV2(
+              interaction,
+              null,
+              [`${UNSUCCESSFUL_EMOJI_RAW} Could not find the channel this message was sent in.`],
+              []
+            );
+            return;
+          }
 
-          const threadId = /^\d{17,20}$/.test(String(targetLogEntry.threadId || ""))
-            ? targetLogEntry.threadId
-            : undefined;
+          const targetMessage = await targetChannel.messages.fetch(messageId).catch(() => null);
+          if (!targetMessage) {
+            await editComponentsV2(
+              interaction,
+              null,
+              [`${UNSUCCESSFUL_EMOJI_RAW} Message not found. It may have already been deleted.`],
+              []
+            );
+            return;
+          }
 
           await withTimeout(
-            webhookClient.deleteMessage(messageId, threadId),
+            targetMessage.delete(),
             10000,
-            "Webhook delete timed out."
+            "Message delete timed out."
           );
 
           logMessage(
@@ -5611,7 +5612,7 @@ client.on("interactionCreate", async (interaction) => {
             []
           );
         } catch (error) {
-          console.error("Webhook delete error:", error);
+          console.error("Message delete error:", error);
           const apiErrorCode = error?.rawError?.code;
 
           if (apiErrorCode === 10008) {
@@ -5624,11 +5625,11 @@ client.on("interactionCreate", async (interaction) => {
             return;
           }
 
-          if (apiErrorCode === 10015) {
+          if (apiErrorCode === 50013) {
             await editComponentsV2(
               interaction,
               null,
-              [`${UNSUCCESSFUL_EMOJI_RAW} The webhook no longer exists, so this message cannot be deleted via bot.`],
+              [`${UNSUCCESSFUL_EMOJI_RAW} The bot is missing permission to delete messages in that channel.`],
               []
             );
             return;
