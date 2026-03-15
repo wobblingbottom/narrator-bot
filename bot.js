@@ -1,4 +1,5 @@
 import fs from "fs";
+import http from "http";
 import path from "path";
 import dotenv from "dotenv";
 import sharp from "sharp";
@@ -8130,29 +8131,9 @@ client.on("shardResume", (shardId, replayedEvents) => {
   console.log(`Discord shard ${shardId} resumed (replayedEvents=${replayedEvents}).`);
 });
 
-client.on("invalidated", async () => {
-  console.error("Discord session invalidated. Attempting a fresh login in 5 seconds.");
-
-  try {
-    client.destroy();
-  } catch (error) {
-    console.error("Failed to destroy invalidated client cleanly:", error);
-  }
-
-  const reloginToken = process.env.DISCORD_TOKEN;
-  if (!reloginToken) {
-    console.error("DISCORD_TOKEN is missing; cannot re-login after invalidation.");
-    return;
-  }
-
-  setTimeout(async () => {
-    try {
-      await client.login(reloginToken);
-      console.log("Re-login after invalidation succeeded.");
-    } catch (error) {
-      console.error("Re-login after invalidation failed:", error);
-    }
-  }, 5000);
+client.on("invalidated", () => {
+  console.error("Discord session invalidated. Exiting so Railway can restart cleanly.");
+  process.exit(1);
 });
 
 process.on("unhandledRejection", (reason) => {
@@ -8162,6 +8143,19 @@ process.on("unhandledRejection", (reason) => {
 process.on("uncaughtException", (error) => {
   console.error("Uncaught exception:", error);
 });
+
+// Minimal HTTP server so Railway health checks succeed and the container
+// is never considered idle/unhealthy when the bot is running fine.
+const _healthPort = parseInt(process.env.PORT || "3000", 10);
+http
+  .createServer((_req, res) => {
+    const alive = client.isReady();
+    res.writeHead(alive ? 200 : 503, { "Content-Type": "text/plain" });
+    res.end(alive ? "OK" : "starting");
+  })
+  .listen(_healthPort, () => {
+    console.log(`Health-check server listening on port ${_healthPort}.`);
+  });
 
 await initEconomyDatabase();
 
