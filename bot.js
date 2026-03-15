@@ -3569,7 +3569,10 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent
-  ]
+  ],
+  rest: {
+    timeout: 30000
+  }
 });
 
 function updateServerCountPresence() {
@@ -8166,6 +8169,10 @@ if (!token) {
 
 // Retry login to handle transient network timeouts at container startup.
 const isTokenError = (e) => e?.code === "TokenInvalid" || String(e?.message).includes("TOKEN_INVALID");
+const isTransientNetworkError = (e) => {
+  const code = e?.code || "";
+  return ["UND_ERR_CONNECT_TIMEOUT", "ETIMEDOUT", "ECONNRESET", "ENETUNREACH", "EAI_AGAIN"].includes(code);
+};
 let loginAttempt = 0;
 while (true) {
   loginAttempt++;
@@ -8177,6 +8184,17 @@ while (true) {
       console.error("Discord token is invalid. Verify DISCORD_TOKEN in Railway Variables.", error);
       process.exit(1);
     }
+
+    if (!isTransientNetworkError(error)) {
+      console.error("Login failed with a non-transient error. Exiting:", error);
+      process.exit(1);
+    }
+
+    if (loginAttempt >= 6) {
+      console.error("Discord is still unreachable after multiple retries. Restarting process for a clean Railway recovery cycle.");
+      process.exit(1);
+    }
+
     const delaySec = Math.min(30, loginAttempt * 5);
     console.error(`Login attempt ${loginAttempt} failed (${error?.code || error?.message}). Retrying in ${delaySec}s...`);
     await new Promise((r) => setTimeout(r, delaySec * 1000));
