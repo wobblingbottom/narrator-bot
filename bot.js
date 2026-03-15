@@ -5539,14 +5539,33 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
-        if (!isAdmin && targetLogEntry.userId !== interaction.user.id) {
-          await editComponentsV2(
-            interaction,
-            null,
-            [`${UNSUCCESSFUL_EMOJI_RAW} You can only delete messages sent from your own account.`],
-            []
-          );
-          return;
+        const targetCharacterId = String(targetLogEntry.characterId || "").trim();
+        const currentCharacterOwnerId = targetCharacterId
+          ? getAssignedUserId(interaction.guildId, targetCharacterId)
+          : null;
+        if (!isAdmin) {
+          if (!targetCharacterId || !currentCharacterOwnerId) {
+            await editComponentsV2(
+              interaction,
+              null,
+              [
+                `${UNSUCCESSFUL_EMOJI_RAW} I couldn't verify the current owner of that character.`,
+                "Only character owners can delete /say messages."
+              ],
+              []
+            );
+            return;
+          }
+
+          if (currentCharacterOwnerId !== interaction.user.id) {
+            await editComponentsV2(
+              interaction,
+              null,
+              [`${UNSUCCESSFUL_EMOJI_RAW} You can only delete /say messages for characters you currently own.`],
+              []
+            );
+            return;
+          }
         }
 
         const ageMs = Date.now() - new Date(targetLogEntry.timestamp).getTime();
