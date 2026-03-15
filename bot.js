@@ -5606,7 +5606,7 @@ client.on("interactionCreate", async (interaction) => {
           await editComponentsV2(
             interaction,
             null,
-            [`${SUCCESSFUL_EMOJI_RAW} Message deleted successfully.`],
+            [`Message \`${messageId}\` deleted successfully.`],
             []
           );
         } catch (error) {
