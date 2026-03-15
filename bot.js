@@ -2481,7 +2481,8 @@ function buildHelpView(guildId, userId, isAdmin, page = 0) {
           heading: "Roleplay",
           lines: [
             `${BULLET_EMOJI_RAW} \`/say\` — Speak as your selected character (supports image + reply)`,
-            `${BULLET_EMOJI_RAW} \`/say-edit\` — Edit a sent /say message by message ID`
+            `${BULLET_EMOJI_RAW} \`/say-edit\` — Edit a sent /say message by message ID`,
+            `${BULLET_EMOJI_RAW} \`/say-delete\` — Delete a sent /say message (within 15 minutes)`
           ]
         },
         {
@@ -3175,6 +3176,16 @@ async function registerCommands() {
         .setMaxLength(2000)
     );
 
+  const sayDeleteCommand = new SlashCommandBuilder()
+    .setName("say-delete")
+    .setDescription("Delete one of your recently sent /say messages (within 15 minutes)")
+    .addStringOption((option) =>
+      option
+        .setName("message_id")
+        .setDescription("Message ID to delete")
+        .setRequired(true)
+    );
+
   const setupCommand = new SlashCommandBuilder()
     .setName("setup")
     .setDescription("Configure bot settings (admin only)")
@@ -3336,6 +3347,7 @@ async function registerCommands() {
     adminCommand.toJSON(),
     sayCommand.toJSON(),
     sayEditCommand.toJSON(),
+    sayDeleteCommand.toJSON(),
     setupCommand.toJSON(),
     botSayCommand.toJSON(),
     helpCommand.toJSON(),
@@ -5470,6 +5482,161 @@ client.on("interactionCreate", async (interaction) => {
             interaction,
             null,
             [`Failed to edit message. ${error?.message || ""}`.trim()],
+            []
+          );
+        }
+
+        return;
+      }
+
+      if (interaction.commandName === "say-delete") {
+        await interaction.deferReply({ ephemeral: true, flags: 32768 });
+
+        if (!interaction.inGuild()) {
+          await editComponentsV2(
+            interaction,
+            null,
+            ["This command can only be used in a server."],
+            []
+          );
+          return;
+        }
+
+        const messageIdRaw = interaction.options.getString("message_id", true);
+        const messageId = String(messageIdRaw || "").trim();
+
+        if (!/^\d{17,20}$/.test(messageId)) {
+          await editComponentsV2(
+            interaction,
+            null,
+            [`${UNSUCCESSFUL_EMOJI_RAW} Message ID must be a valid Discord message ID.`],
+            []
+          );
+          return;
+        }
+
+        const targetLogEntry = [...messageLogs]
+          .reverse()
+          .find(
+            (entry) =>
+              entry?.guildId === interaction.guildId &&
+              entry?.messageId === messageId &&
+              entry?.source === "say"
+          );
+
+        if (!targetLogEntry) {
+          await editComponentsV2(
+            interaction,
+            null,
+            [
+              `${UNSUCCESSFUL_EMOJI_RAW} I couldn't find that message in tracked /say logs.`,
+              "Only /say messages sent after this update can be deleted."
+            ],
+            []
+          );
+          return;
+        }
+
+        const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
+        if (!isAdmin && targetLogEntry.userId !== interaction.user.id) {
+          await editComponentsV2(
+            interaction,
+            null,
+            [`${UNSUCCESSFUL_EMOJI_RAW} You can only delete messages sent from your own account.`],
+            []
+          );
+          return;
+        }
+
+        const ageMs = Date.now() - new Date(targetLogEntry.timestamp).getTime();
+        if (!isAdmin && ageMs > 15 * 60 * 1000) {
+          await editComponentsV2(
+            interaction,
+            null,
+            [
+              `${UNSUCCESSFUL_EMOJI_RAW} This message is older than 15 minutes and can no longer be deleted.`,
+              "Contact a server admin if you need it removed."
+            ],
+            []
+          );
+          return;
+        }
+
+        const webhookId = String(targetLogEntry.webhookId || "").trim();
+        const webhookToken = String(targetLogEntry.webhookToken || "").trim();
+
+        if (!webhookId || !webhookToken) {
+          await editComponentsV2(
+            interaction,
+            null,
+            [
+              `${UNSUCCESSFUL_EMOJI_RAW} This message does not have webhook data in logs and cannot be deleted this way.`,
+              "Ask a server admin to remove it manually."
+            ],
+            []
+          );
+          return;
+        }
+
+        try {
+          const webhookClient = new WebhookClient({
+            id: webhookId,
+            token: webhookToken
+          });
+
+          const threadId = /^\d{17,20}$/.test(String(targetLogEntry.threadId || ""))
+            ? targetLogEntry.threadId
+            : undefined;
+
+          await withTimeout(
+            webhookClient.deleteMessage(messageId, threadId),
+            10000,
+            "Webhook delete timed out."
+          );
+
+          logMessage(
+            interaction.user.id,
+            "Message Delete",
+            `Deleted /say message ${messageId}`,
+            interaction.channelId,
+            interaction.guildId,
+            { source: "say-delete", targetMessageId: messageId }
+          );
+
+          await editComponentsV2(
+            interaction,
+            null,
+            [`${SUCCESSFUL_EMOJI_RAW} Message deleted successfully.`],
+            []
+          );
+        } catch (error) {
+          console.error("Webhook delete error:", error);
+          const apiErrorCode = error?.rawError?.code;
+
+          if (apiErrorCode === 10008) {
+            await editComponentsV2(
+              interaction,
+              null,
+              [`${UNSUCCESSFUL_EMOJI_RAW} Message not found. It may have already been deleted.`],
+              []
+            );
+            return;
+          }
+
+          if (apiErrorCode === 10015) {
+            await editComponentsV2(
+              interaction,
+              null,
+              [`${UNSUCCESSFUL_EMOJI_RAW} The webhook no longer exists, so this message cannot be deleted via bot.`],
+              []
+            );
+            return;
+          }
+
+          await editComponentsV2(
+            interaction,
+            null,
+            [`${UNSUCCESSFUL_EMOJI_RAW} Failed to delete message. ${error?.message || ""}`.trim()],
             []
           );
         }
