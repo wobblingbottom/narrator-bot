@@ -2579,7 +2579,8 @@ function buildTutorialView(guildId, userId, page = 0) {
         "**Create your first character**",
         `${BULLET_EMOJI_RAW} Run \`/character create-and-assign\` and fill at least **id** + **name**.`,
         `${BULLET_EMOJI_RAW} This creates the character and assigns it to you immediately.`,
-        `${BULLET_EMOJI_RAW} Use \`/character list\` to confirm it exists and is assigned.`
+        `${BULLET_EMOJI_RAW} Use \`/character list\` to confirm it exists and is assigned.`,
+        `${BULLET_EMOJI_RAW} Use \`/lookup character:<id>\` anytime to see who owns a character.`
       ]
     },
     {
@@ -2588,7 +2589,8 @@ function buildTutorialView(guildId, userId, page = 0) {
         "**Pick the character you want to speak as**",
         `${BULLET_EMOJI_RAW} Run \`/character pick character:<id>\`.`,
         `${BULLET_EMOJI_RAW} ${selectedCharacterLine}`,
-        `${BULLET_EMOJI_RAW} You can switch anytime by running \`/character pick\` again.`
+        `${BULLET_EMOJI_RAW} You can switch anytime by running \`/character pick\` again.`,
+        `${BULLET_EMOJI_RAW} If you are not sure who owns a character, run \`/lookup\`.`
       ]
     },
     {
