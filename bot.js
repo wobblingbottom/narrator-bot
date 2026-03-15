@@ -2465,24 +2465,48 @@ function buildHelpView(guildId, userId, isAdmin, page = 0) {
   const pages = [
     {
       title: "Help",
-      lines: [
-        "**Public Commands**",
-        `${BULLET_EMOJI_RAW} \`/character pick\` - Select your active character`,
-        `${BULLET_EMOJI_RAW} \`/character list\` - List your assigned characters`,
-        `${BULLET_EMOJI_RAW} \`/character profile\` - View character details`,
-        `${BULLET_EMOJI_RAW} \`/lookup\` - Find who currently owns a character`,
-        `${BULLET_EMOJI_RAW} \`/character edit\` - Edit your character info`,
-        `${BULLET_EMOJI_RAW} \`/character create-and-assign\` - Create and auto-assign a character`,
-        `${BULLET_EMOJI_RAW} \`/user profile\` - View a user profile`,
-        `${BULLET_EMOJI_RAW} \`/user edit\` - Edit your own profile`,
-        `${BULLET_EMOJI_RAW} \`/wallet\` - View user + character wallets`,
-        `${BULLET_EMOJI_RAW} \`/shop\` - Buy upgrades and other items`,
-        `${BULLET_EMOJI_RAW} \`/premium\` - Open premium purchase instructions`,
-        `${BULLET_EMOJI_RAW} \`/tutorial\` - Step-by-step getting started guide`,
-        `${BULLET_EMOJI_RAW} \`/say\` - Speak as your selected character (optional image + reply_to message ID)`,
-        `${BULLET_EMOJI_RAW} \`/say-edit\` - Edit one of your sent /say messages by message ID`,
-        `${BULLET_EMOJI_RAW} \`/points\` - View points`,
-        `${BULLET_EMOJI_RAW} \`/leaderboard\` - View rankings`
+      sections: [
+        {
+          heading: "Characters",
+          lines: [
+            `${BULLET_EMOJI_RAW} \`/character pick\` — Select your active character`,
+            `${BULLET_EMOJI_RAW} \`/character list\` — List your assigned characters`,
+            `${BULLET_EMOJI_RAW} \`/character profile\` — View character details`,
+            `${BULLET_EMOJI_RAW} \`/lookup\` — Find who currently owns a character`,
+            `${BULLET_EMOJI_RAW} \`/character edit\` — Edit your character info`,
+            `${BULLET_EMOJI_RAW} \`/character create-and-assign\` — Create and auto-assign a character`
+          ]
+        },
+        {
+          heading: "Roleplay",
+          lines: [
+            `${BULLET_EMOJI_RAW} \`/say\` — Speak as your selected character (supports image + reply)`,
+            `${BULLET_EMOJI_RAW} \`/say-edit\` — Edit a sent /say message by message ID`
+          ]
+        },
+        {
+          heading: "Profile",
+          lines: [
+            `${BULLET_EMOJI_RAW} \`/user profile\` — View a user profile`,
+            `${BULLET_EMOJI_RAW} \`/user edit\` — Edit your own profile`
+          ]
+        },
+        {
+          heading: "Economy",
+          lines: [
+            `${BULLET_EMOJI_RAW} \`/wallet\` — View your wallets`,
+            `${BULLET_EMOJI_RAW} \`/points\` — View your points`,
+            `${BULLET_EMOJI_RAW} \`/leaderboard\` — View rankings`,
+            `${BULLET_EMOJI_RAW} \`/shop\` — Buy slots and upgrades`
+          ]
+        },
+        {
+          heading: "Info",
+          lines: [
+            `${BULLET_EMOJI_RAW} \`/tutorial\` — Step-by-step getting started guide`,
+            `${BULLET_EMOJI_RAW} \`/premium\` — Premium purchase instructions`
+          ]
+        }
       ]
     },
     {
@@ -2503,18 +2527,26 @@ function buildHelpView(guildId, userId, isAdmin, page = 0) {
   if (isAdmin) {
     pages.push({
       title: "Help • Admin",
-      lines: [
-        "**Admin Commands**",
-        `${BULLET_EMOJI_RAW} \`/character assign\` - Assign character ownership`,
-        `${BULLET_EMOJI_RAW} \`/character create\` / \`/character delete\` - Manage characters`,
-        `${BULLET_EMOJI_RAW} \`/character change-id\` - Change character IDs`,
-        `${BULLET_EMOJI_RAW} \`/admin user edit\` - Manage user profile + characters`,
-        `${BULLET_EMOJI_RAW} \`/setup panel\` - Manage admin roles, logs channel, and /say channels`,
-        `${BULLET_EMOJI_RAW} \`/setup setup-logs-channel\` - Quick set logs channel`,
-        `${BULLET_EMOJI_RAW} \`/setup add-points\` - Add user/character wallet points`,
-        `${BULLET_EMOJI_RAW} \`/setup add-role-shop-item\` - Add role item to shop`,
-        `${BULLET_EMOJI_RAW} \`/character clear-webhooks\` - Reset webhook cache`,
-        `${BULLET_EMOJI_RAW} \`/bot-say\` - Send a bot message`
+      sections: [
+        {
+          heading: "Characters",
+          lines: [
+            `${BULLET_EMOJI_RAW} \`/character assign\` — Assign character ownership`,
+            `${BULLET_EMOJI_RAW} \`/character create\` / \`/character delete\` — Manage characters`,
+            `${BULLET_EMOJI_RAW} \`/character change-id\` — Change character IDs`,
+            `${BULLET_EMOJI_RAW} \`/character clear-webhooks\` — Reset webhook cache`
+          ]
+        },
+        {
+          heading: "Users & Setup",
+          lines: [
+            `${BULLET_EMOJI_RAW} \`/admin user edit\` — Manage user profile + characters`,
+            `${BULLET_EMOJI_RAW} \`/setup panel\` — Manage admin roles, logs channel, and /say channels`,
+            `${BULLET_EMOJI_RAW} \`/setup add-points\` — Add user/character wallet points`,
+            `${BULLET_EMOJI_RAW} \`/setup add-role-shop-item\` — Add role item to shop`,
+            `${BULLET_EMOJI_RAW} \`/bot-say\` — Send a message as the bot`
+          ]
+        }
       ]
     });
   }
@@ -2524,12 +2556,22 @@ function buildHelpView(guildId, userId, isAdmin, page = 0) {
   const currentPage = pages[safePage];
 
   const components = [{ type: 10, content: `## ${currentPage.title}` }];
-  const contentLines = currentPage.lines.filter((line) => typeof line === "string" && line.trim().length > 0);
 
-  if (contentLines.length > 0) {
-    components.push({ type: 14, divider: true, spacing: 1 });
-    for (const line of contentLines) {
-      components.push({ type: 10, content: line });
+  if (currentPage.sections) {
+    for (const section of currentPage.sections) {
+      components.push({ type: 14, divider: true, spacing: 1 });
+      components.push({ type: 10, content: `**${section.heading}**` });
+      for (const line of section.lines) {
+        components.push({ type: 10, content: line });
+      }
+    }
+  } else {
+    const contentLines = currentPage.lines.filter((line) => typeof line === "string" && line.trim().length > 0);
+    if (contentLines.length > 0) {
+      components.push({ type: 14, divider: true, spacing: 1 });
+      for (const line of contentLines) {
+        components.push({ type: 10, content: line });
+      }
     }
   }
 
