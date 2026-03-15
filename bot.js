@@ -3598,6 +3598,15 @@ client.once("clientReady", () => {
   console.log(`Logged in as ${client.user.tag}`);
   updateServerCountPresence();
 
+  (async () => {
+    try {
+      await registerCommands();
+      console.log("Slash commands registered successfully.");
+    } catch (error) {
+      console.error("Slash command registration failed after login; bot will remain online:", error);
+    }
+  })();
+
   const commandGuildId = (process.env.COMMAND_GUILD_ID || "").trim();
   const commandMode = commandGuildId ? `guild (${commandGuildId})` : "global";
   console.log(
@@ -8123,7 +8132,6 @@ process.on("uncaughtException", (error) => {
 });
 
 await initEconomyDatabase();
-await registerCommands();
 
 const token = process.env.DISCORD_TOKEN;
 if (!token) {
