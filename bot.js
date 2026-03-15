@@ -4,6 +4,7 @@ import path from "path";
 import dotenv from "dotenv";
 import sharp from "sharp";
 import Database from "better-sqlite3";
+import { Agent, setGlobalDispatcher } from "undici";
 import {
   ActivityType,
   ActionRowBuilder,
@@ -24,6 +25,16 @@ import {
 } from "discord.js";
 
 dotenv.config();
+
+setGlobalDispatcher(
+  new Agent({
+    connect: {
+      timeout: 30000
+    },
+    headersTimeout: 30000,
+    bodyTimeout: 30000
+  })
+);
 
 const DATA_DIR = path.resolve("./data");
 const CONFIG_DIR = path.resolve("./config");
@@ -8152,9 +8163,9 @@ process.on("uncaughtException", (error) => {
 const _healthPort = parseInt(process.env.PORT || "3000", 10);
 http
   .createServer((_req, res) => {
-    const alive = client.isReady();
-    res.writeHead(alive ? 200 : 503, { "Content-Type": "text/plain" });
-    res.end(alive ? "OK" : "starting");
+    const status = client.isReady() ? "ready" : "starting";
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end(`OK:${status}`);
   })
   .listen(_healthPort, () => {
     console.log(`Health-check server listening on port ${_healthPort}.`);
@@ -8187,11 +8198,6 @@ while (true) {
 
     if (!isTransientNetworkError(error)) {
       console.error("Login failed with a non-transient error. Exiting:", error);
-      process.exit(1);
-    }
-
-    if (loginAttempt >= 6) {
-      console.error("Discord is still unreachable after multiple retries. Restarting process for a clean Railway recovery cycle.");
       process.exit(1);
     }
 
