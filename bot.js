@@ -2470,6 +2470,7 @@ function buildHelpView(guildId, userId, isAdmin, page = 0) {
         `${BULLET_EMOJI_RAW} \`/character pick\` - Select your active character`,
         `${BULLET_EMOJI_RAW} \`/character list\` - List your assigned characters`,
         `${BULLET_EMOJI_RAW} \`/character profile\` - View character details`,
+        `${BULLET_EMOJI_RAW} \`/lookup\` - Find who currently owns a character`,
         `${BULLET_EMOJI_RAW} \`/character edit\` - Edit your character info`,
         `${BULLET_EMOJI_RAW} \`/character create-and-assign\` - Create and auto-assign a character`,
         `${BULLET_EMOJI_RAW} \`/user profile\` - View a user profile`,
@@ -3242,6 +3243,17 @@ async function registerCommands() {
         .setAutocomplete(true)
     );
 
+  const lookupCommand = new SlashCommandBuilder()
+    .setName("lookup")
+    .setDescription("Find who owns a character")
+    .addStringOption((option) =>
+      option
+        .setName("character")
+        .setDescription("Character to look up")
+        .setRequired(true)
+        .setAutocomplete(true)
+    );
+
   const leaderboardCommand = new SlashCommandBuilder()
     .setName("leaderboard")
     .setDescription("View points leaderboard")
@@ -3287,6 +3299,7 @@ async function registerCommands() {
     premiumCommand.toJSON(),
     shopCommand.toJSON(),
     walletCommand.toJSON(),
+    lookupCommand.toJSON(),
     leaderboardCommand.toJSON(),
     pointsCommand.toJSON()
   ];
@@ -3827,6 +3840,14 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       if (interaction.commandName === "wallet") {
+        const focusedValue = interaction.options.getFocused(true);
+        if (focusedValue.name === "character") {
+          const choices = getCharacterAutocompleteChoices(interaction.guildId, focusedValue.value);
+          await interaction.respond(choices);
+        }
+      }
+
+      if (interaction.commandName === "lookup") {
         const focusedValue = interaction.options.getFocused(true);
         if (focusedValue.name === "character") {
           const choices = getCharacterAutocompleteChoices(interaction.guildId, focusedValue.value);
@@ -4726,6 +4747,50 @@ client.on("interactionCreate", async (interaction) => {
             }
           });
         }
+        return;
+      }
+
+      if (interaction.commandName === "lookup") {
+        if (!interaction.inGuild()) {
+          await replyComponentsV2(
+            interaction,
+            "Lookup",
+            ["This command can only be used in a server."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        const characterId = interaction.options.getString("character", true);
+        const character = getCharacterById(characterId, interaction.guildId);
+
+        if (!character) {
+          await replyComponentsV2(
+            interaction,
+            "Lookup",
+            ["That character does not exist in this server."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        const assignedUserId = getAssignedUserId(interaction.guildId, character.id);
+        const ownerLine = assignedUserId
+          ? `Owner: <@${assignedUserId}>`
+          : "Owner: Unassigned";
+
+        await replyComponentsV2(
+          interaction,
+          "Character Lookup",
+          [
+            `Character: **${character.name}** (\`${character.id}\`)`,
+            ownerLine
+          ],
+          [],
+          { ephemeral: true }
+        );
         return;
       }
 
