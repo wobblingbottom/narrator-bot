@@ -8164,9 +8164,21 @@ if (!token) {
   throw new Error("DISCORD_TOKEN must be set in the environment.");
 }
 
-try {
-  await client.login(token);
-} catch (error) {
-  console.error("Failed to log in to Discord. Verify DISCORD_TOKEN and bot settings:", error);
-  process.exit(1);
+// Retry login to handle transient network timeouts at container startup.
+const isTokenError = (e) => e?.code === "TokenInvalid" || String(e?.message).includes("TOKEN_INVALID");
+let loginAttempt = 0;
+while (true) {
+  loginAttempt++;
+  try {
+    await client.login(token);
+    break; // success
+  } catch (error) {
+    if (isTokenError(error)) {
+      console.error("Discord token is invalid. Verify DISCORD_TOKEN in Railway Variables.", error);
+      process.exit(1);
+    }
+    const delaySec = Math.min(30, loginAttempt * 5);
+    console.error(`Login attempt ${loginAttempt} failed (${error?.code || error?.message}). Retrying in ${delaySec}s...`);
+    await new Promise((r) => setTimeout(r, delaySec * 1000));
+  }
 }
