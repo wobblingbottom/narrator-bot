@@ -8101,6 +8101,19 @@ client.on("messageCreate", async (message) => {
   }
 });
 
+client.on("error", (error) => {
+  console.error("Discord client error:", error);
+});
+
+client.on("shardError", (error) => {
+  console.error("Discord shard websocket error:", error);
+});
+
+client.on("invalidated", () => {
+  console.error("Discord session invalidated. Exiting so the host can restart with fresh auth.");
+  process.exit(1);
+});
+
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled promise rejection:", reason);
 });
@@ -8117,4 +8130,9 @@ if (!token) {
   throw new Error("DISCORD_TOKEN must be set in the environment.");
 }
 
-client.login(token);
+try {
+  await client.login(token);
+} catch (error) {
+  console.error("Failed to log in to Discord. Verify DISCORD_TOKEN and bot settings:", error);
+  process.exit(1);
+}
