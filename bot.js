@@ -85,6 +85,7 @@ const CURRENCY_EMOJI_RAW = (process.env.CURRENCY_EMOJI || "<:sundrop:14792313878
 const SHOP_ITEM_EMOJI_RAW = "<:pointer:1478835623853949109>";
 const POINTS_EMOJI_RAW = "<:sundrop:1479231387864399963>";
 const UNSUCCESSFUL_EMOJI_RAW = "<:unsuccess:1479238199774806149>";
+const SUCCESSFUL_EMOJI_RAW = "<:success:1479234774861221898>";
 const BULLET_EMOJI_RAW = "<:bullet:1479240196191944938>";
 
 const CHARACTER_UPGRADE_DEFINITIONS = {
@@ -5606,7 +5607,7 @@ client.on("interactionCreate", async (interaction) => {
           await editComponentsV2(
             interaction,
             null,
-            [`Message \`${messageId}\` deleted successfully.`],
+            [`${SUCCESSFUL_EMOJI_RAW} Message \`${messageId}\` deleted successfully.`],
             []
           );
         } catch (error) {
