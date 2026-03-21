@@ -2355,6 +2355,26 @@ function getCurrencyEmojiForButton() {
   return { name: shopButtonEmojiRaw || CURRENCY_EMOJI_RAW || "🍬" };
 }
 
+function buildDiscordPremiumButtonRow(skuId) {
+  const normalizedSkuId = String(skuId || "").trim();
+  if (!normalizedSkuId) {
+    return [];
+  }
+
+  return [
+    {
+      type: 1,
+      components: [
+        {
+          type: 2,
+          style: 6,
+          sku_id: normalizedSkuId
+        }
+      ]
+    }
+  ];
+}
+
 function buildShopView(guildId, userId, page = 0, statusLine = null) {
   const items = getShopItems(guildId, userId);
   const totalPages = Math.max(1, Math.ceil(items.length / SHOP_PAGE_SIZE));
@@ -2395,17 +2415,9 @@ function buildShopView(guildId, userId, page = 0, statusLine = null) {
   }
 
   if (DISCORD_PREMIUM_SLOT_SKU_IDS.size > 0) {
-    const premiumSkuId = Array.from(DISCORD_PREMIUM_SLOT_SKU_IDS)[0];
-    const premiumButton = new ButtonBuilder()
-      .setStyle(ButtonStyle.Premium)
-      .setSkuId(premiumSkuId);
     components.push({
       type: 10,
-      content: `${SHOP_ITEM_EMOJI_RAW} **+${DISCORD_PREMIUM_SUBSCRIPTION_SLOTS} Character Slots (Subscription)**\nGrants ${DISCORD_PREMIUM_SUBSCRIPTION_SLOTS} extra slots for as long as your subscription is active. Slots disappear if subscription ends.\n**Wallet:** Discord`
-    });
-    components.push({
-      type: 1,
-      components: [premiumButton.toJSON()]
+      content: `${SHOP_ITEM_EMOJI_RAW} **+${DISCORD_PREMIUM_SUBSCRIPTION_SLOTS} Character Slots (Subscription)**\nGrants ${DISCORD_PREMIUM_SUBSCRIPTION_SLOTS} extra slots for as long as your subscription is active. Slots disappear if subscription ends.\nUse **/premium** to open the Discord subscription purchase flow.`
     });
     components.push({ type: 14, divider: true, spacing: 1 });
   }
@@ -6031,30 +6043,26 @@ client.on("interactionCreate", async (interaction) => {
           `${BULLET_EMOJI_RAW} After subscribing, run \`/wallet\` to confirm your slots are active.`
         ];
 
-        let extraComponents = [];
         if (firstSkuId) {
-          const premiumButton = new ButtonBuilder()
-            .setStyle(ButtonStyle.Premium)
-            .setSkuId(firstSkuId);
-          extraComponents = [
-            {
-              type: 1,
-              components: [premiumButton.toJSON()]
-            }
-          ];
-        } else {
-          const appId = client.application?.id || process.env.CLIENT_ID || "";
-          const purchaseUrl = DISCORD_PREMIUM_PURCHASE_URL || (appId ? `https://discord.com/application-directory/${appId}` : "");
-          if (purchaseUrl) {
-            lines.push(`Purchase link: ${purchaseUrl}`);
-          }
+          await interaction.reply({
+            content: lines.join("\n"),
+            components: buildDiscordPremiumButtonRow(firstSkuId),
+            ephemeral: true
+          });
+          return;
+        }
+
+        const appId = client.application?.id || process.env.CLIENT_ID || "";
+        const purchaseUrl = DISCORD_PREMIUM_PURCHASE_URL || (appId ? `https://discord.com/application-directory/${appId}` : "");
+        if (purchaseUrl) {
+          lines.push(`Purchase link: ${purchaseUrl}`);
         }
 
         await replyComponentsV2(
           interaction,
           `Premium — +${DISCORD_PREMIUM_SUBSCRIPTION_SLOTS} Character Slots (Subscription)`,
           lines,
-          extraComponents,
+          [],
           { ephemeral: true }
         );
         return;
