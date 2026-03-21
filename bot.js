@@ -6036,35 +6036,38 @@ client.on("interactionCreate", async (interaction) => {
           ? Array.from(DISCORD_PREMIUM_SLOT_SKU_IDS)[0]
           : null;
 
-        const lines = [
-          `${BULLET_EMOJI_RAW} Subscribe to unlock **+${DISCORD_PREMIUM_SUBSCRIPTION_SLOTS} extra character slots** through Discord.`,
-          `${BULLET_EMOJI_RAW} Slots are active for as long as your subscription is running.`,
-          `${BULLET_EMOJI_RAW} If you cancel, the subscription slots disappear but your characters are never deleted.`,
-          `${BULLET_EMOJI_RAW} After subscribing, run \`/wallet\` to confirm your slots are active.`
-        ];
+        const messageContent = [
+          `**Premium — +${DISCORD_PREMIUM_SUBSCRIPTION_SLOTS} Character Slots (Subscription)**`,
+          ``,
+          `• Subscribe to unlock **+${DISCORD_PREMIUM_SUBSCRIPTION_SLOTS} extra character slots** through Discord.`,
+          `• Slots are active for as long as your subscription is running.`,
+          `• If you cancel, the subscription slots disappear but your characters are never deleted.`,
+          `• After subscribing, run \`/wallet\` to confirm your slots are active.`
+        ].join("\n");
 
         if (firstSkuId) {
-          await interaction.reply({
-            content: lines.join("\n"),
-            components: buildDiscordPremiumButtonRow(firstSkuId),
-            ephemeral: true
-          });
-          return;
+          try {
+            const premiumRow = new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setStyle(ButtonStyle.Premium)
+                .setSkuId(firstSkuId)
+            );
+            await interaction.reply({
+              content: messageContent,
+              components: [premiumRow],
+              ephemeral: true
+            });
+            return;
+          } catch (premiumButtonError) {
+            console.error("Premium button reply failed, falling back to text:", premiumButtonError);
+          }
         }
 
+        // Fallback: plain text only (no buttons)
         const appId = client.application?.id || process.env.CLIENT_ID || "";
         const purchaseUrl = DISCORD_PREMIUM_PURCHASE_URL || (appId ? `https://discord.com/application-directory/${appId}` : "");
-        if (purchaseUrl) {
-          lines.push(`Purchase link: ${purchaseUrl}`);
-        }
-
-        await replyComponentsV2(
-          interaction,
-          `Premium — +${DISCORD_PREMIUM_SUBSCRIPTION_SLOTS} Character Slots (Subscription)`,
-          lines,
-          [],
-          { ephemeral: true }
-        );
+        const fallbackLines = messageContent + (purchaseUrl ? `\n\nPurchase link: ${purchaseUrl}` : "");
+        await interaction.reply({ content: fallbackLines, ephemeral: true });
         return;
       }
 
