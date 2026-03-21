@@ -6,14 +6,14 @@ Multi-server Discord RP bot with:
 - User/character wallets and points
 - Shop upgrades + role shop items
 - Admin setup panel + logs channel
-- Optional Discord SKU entitlement-based premium slots
+- Optional Discord subscription-based premium slots (+5 while active, slot-locked on expiry)
 
 ## Tech Stack
 
 - Node.js (ESM)
 - discord.js v14
 - better-sqlite3
-- express (payments service)
+- express (optional legacy payments service)
 - sharp (profile image rendering)
 
 ## Project Structure
@@ -44,7 +44,7 @@ Optional command scope:
 Other optional vars:
 - `GUILD_ID` (legacy fallback for integrations)
 - `CURRENCY_EMOJI`
-- `DISCORD_PREMIUM_SLOT_SKUS` (comma-separated SKU IDs that each grant +1 premium slot)
+- `DISCORD_PREMIUM_SLOT_SKUS` (comma-separated Discord SKU IDs for premium subscriptions)
 
 Legacy payment vars (only if using optional PayPal backend):
 - `PAYMENTS_PORT`
@@ -102,9 +102,18 @@ On startup, commands are registered by env mode:
 - `/say`
 - `/wallet`
 - `/shop`
+- `/premium`
 - `/leaderboard`
 - `/setup panel`
 - `/admin user edit`
+
+## Premium Slots
+
+- Premium is handled through Discord monetization using SKU entitlements.
+- Current model: one active premium subscription grants `+5` extra character slots.
+- Premium slots are separate from bought base slots.
+- If premium expires, characters are not deleted, but any characters above the active slot limit become slot-locked.
+- Slot-locked characters cannot be picked or used with `/say` until the user re-subscribes or frees enough non-premium slots.
 
 ## Deployment Notes
 
@@ -112,17 +121,27 @@ On startup, commands are registered by env mode:
 - Persist the `data/` directory in production.
 - If deploying with Docker, ensure env vars are present in runtime environment.
 
-## Railway (Recommended)
+## Hosting
+
+Keep the README hosting section short. It should answer "how do I run this" and point to the full guides instead of duplicating every deployment step here.
+
+### Railway (Recommended)
 
 1. Connect this GitHub repo to a new Railway project.
 2. Deploy the bot service from this repo (uses `railway.json` + `Dockerfile`).
 3. Set variables in Railway:
 	- Required: `DISCORD_TOKEN`, `CLIENT_ID`
-	- Optional: `COMMAND_GUILD_ID`, `GUILD_ID`, `CURRENCY_EMOJI`
+	- Optional: `COMMAND_GUILD_ID`, `GUILD_ID`, `CURRENCY_EMOJI`, `DISCORD_PREMIUM_SLOT_SKUS`
 4. Attach a Railway Volume mounted at `/app/data` for persistent bot data.
 5. Redeploy and check logs for `Logged in as ...`.
 
 If you use the legacy PayPal backend, deploy `payments-server.js` as a separate Railway service with `npm run start:payments`.
+
+### Oracle Cloud
+
+- Oracle Cloud deployment guides are kept in the repo for manual VM hosting.
+- Use `QUICKSTART.md` for the short version.
+- Use `DEPLOYMENT.md` for the full step-by-step setup.
 
 ### Railway Backups (Important)
 
