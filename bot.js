@@ -66,6 +66,7 @@ const MESSAGE_POINTS_COOLDOWN_MS = 30000;
 const CHARACTER_POINTS_COOLDOWN_MS = 10000;
 const DEFAULT_CHARACTER_SLOTS = 1;
 const MAX_CHARACTER_SLOTS = 6;
+const DISCORD_PREMIUM_SUBSCRIPTION_SLOTS = 5;
 const SLOT_BASE_COST = 90;
 const SLOT_COST_STEP = 60;
 const SHOP_PAGE_SIZE = 4;
@@ -174,7 +175,7 @@ function syncPremiumSlotsFromInteraction(interaction) {
 
     const entries = getEntitlementEntries(interaction.entitlements);
 
-    let premiumSlots = 0;
+    let hasActivePremium = false;
     for (const entitlement of entries) {
       if (!isEntitlementActive(entitlement)) {
         continue;
@@ -195,11 +196,12 @@ function syncPremiumSlotsFromInteraction(interaction) {
         continue;
       }
 
-      premiumSlots += 1;
+      hasActivePremium = true;
+      break;
     }
 
-    if (premiumSlots > 0) {
-      entitlementSlotBonusByScopeUser.set(scopeKey, premiumSlots);
+    if (hasActivePremium) {
+      entitlementSlotBonusByScopeUser.set(scopeKey, DISCORD_PREMIUM_SUBSCRIPTION_SLOTS);
     } else {
       entitlementSlotBonusByScopeUser.delete(scopeKey);
     }
@@ -1984,6 +1986,17 @@ function increaseUserCharacterSlots(guildId, userId, amount = 1) {
   saveUserSlots();
 }
 
+function isCharacterSlotLocked(guildId, userId, characterId) {
+  const slotLimit = getUserCharacterSlotLimit(guildId, userId);
+  const ownedChars = getOwnedCharacters(userId, guildId);
+  if (ownedChars.length <= slotLimit) {
+    return false;
+  }
+  // Characters beyond the slot limit (sorted by stable array insertion order) are locked.
+  const index = ownedChars.findIndex((c) => c.id === characterId);
+  return index >= slotLimit;
+}
+
 function canAssignCharacterToUser(guildId, userId, characterId) {
   const currentOwnerId = getAssignedUserId(guildId, characterId);
   if (currentOwnerId === userId) {
@@ -2378,6 +2391,22 @@ function buildShopView(guildId, userId, page = 0, statusLine = null) {
 
   if (statusLine) {
     components.push({ type: 10, content: statusLine });
+    components.push({ type: 14, divider: true, spacing: 1 });
+  }
+
+  if (DISCORD_PREMIUM_SLOT_SKU_IDS.size > 0) {
+    const premiumSkuId = Array.from(DISCORD_PREMIUM_SLOT_SKU_IDS)[0];
+    const premiumButton = new ButtonBuilder()
+      .setStyle(ButtonStyle.Premium)
+      .setSkuId(premiumSkuId);
+    components.push({
+      type: 10,
+      content: `${SHOP_ITEM_EMOJI_RAW} **+${DISCORD_PREMIUM_SUBSCRIPTION_SLOTS} Character Slots (Subscription)**\nGrants ${DISCORD_PREMIUM_SUBSCRIPTION_SLOTS} extra slots for as long as your subscription is active. Slots disappear if subscription ends.\n**Wallet:** Discord`
+    });
+    components.push({
+      type: 1,
+      components: [premiumButton.toJSON()]
+    });
     components.push({ type: 14, divider: true, spacing: 1 });
   }
 
@@ -3276,7 +3305,7 @@ async function registerCommands() {
 
   const premiumCommand = new SlashCommandBuilder()
     .setName("premium")
-    .setDescription("Get the premium purchase link and steps");
+    .setDescription(`Subscribe for +${DISCORD_PREMIUM_SUBSCRIPTION_SLOTS} extra character slots while active`);
 
   const shopCommand = new SlashCommandBuilder()
     .setName("shop")
@@ -4059,6 +4088,23 @@ client.on("interactionCreate", async (interaction) => {
             return;
           }
 
+          if (isCharacterSlotLocked(interaction.guildId, interaction.user.id, characterId)) {
+            const slotLimit = getUserCharacterSlotLimit(interaction.guildId, interaction.user.id);
+            const ownedCount = getOwnedCharacterCount(interaction.guildId, interaction.user.id);
+            await replyComponentsV2(
+              interaction,
+              "Character Pick",
+              [
+                `${UNSUCCESSFUL_EMOJI_RAW} **${character.name}** is in a locked subscription slot.`,
+                `You have **${ownedCount}** characters but only **${slotLimit}** active slot(s).`,
+                "Re-subscribe to unlock all slots, or unassign characters until you're within your base limit."
+              ],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
           setSelectedCharacterId(interaction.guildId, interaction.user.id, characterId);
           saveSelections();
 
@@ -4444,13 +4490,27 @@ client.on("interactionCreate", async (interaction) => {
             }
           ];
 
-          ownedCharacters.forEach((c) => {
+          const slotLimit = getUserCharacterSlotLimit(interaction.guildId, targetUserId);
+          const ownedCount = ownedCharacters.length;
+          const isOverSlotted = ownedCount > slotLimit;
+
+          ownedCharacters.forEach((c, index) => {
+            const locked = isOverSlotted && index >= slotLimit;
             const bioSnippet = c.bio ? c.bio.substring(0, 100) + (c.bio.length > 100 ? "..." : "") : "_(No bio)_";
+            const lockLabel = locked ? " 🔒 **[Slot Locked — subscription ended]**" : "";
             components.push({
               type: 10,
-              content: `**${c.name}** (\`${c.id}\`)\n${bioSnippet}`
+              content: `**${c.name}** (\`${c.id}\`)${lockLabel}\n${bioSnippet}`
             });
           });
+
+          if (isOverSlotted) {
+            components.push({ type: 14, divider: true, spacing: 1 });
+            components.push({
+              type: 10,
+              content: `${UNSUCCESSFUL_EMOJI_RAW} **${ownedCount - slotLimit}** character(s) are locked. Re-subscribe or unassign characters to free slots.`
+            });
+          }
 
           await interaction.reply({
             flags: 32768, // IS_COMPONENTS_V2
@@ -4946,7 +5006,7 @@ client.on("interactionCreate", async (interaction) => {
           `**User:** ${targetUser.tag}`,
           `**User Points:** ${formatPointsWithEmoji(userPoints)}`,
           `**Character Slots:** ${usedSlots}/${slotLimit}`,
-          `**Slot Sources:** Base ${baseSlotLimit} + Premium ${premiumSlots}`
+          `**Slot Sources:** Base ${baseSlotLimit} + Subscription ${premiumSlots}`
         ];
 
         const characterSectionLines = [];
@@ -5061,6 +5121,22 @@ client.on("interactionCreate", async (interaction) => {
             interaction,
             null,
             ["You are not assigned to that character."],
+            []
+          );
+          return;
+        }
+
+        if (isCharacterSlotLocked(interaction.guildId, interaction.user.id, selectedCharacterId)) {
+          const slotLimit = getUserCharacterSlotLimit(interaction.guildId, interaction.user.id);
+          const ownedCount = getOwnedCharacterCount(interaction.guildId, interaction.user.id);
+          await editComponentsV2(
+            interaction,
+            null,
+            [
+              `${UNSUCCESSFUL_EMOJI_RAW} This character is in a locked subscription slot.`,
+              `You have **${ownedCount}** characters but only **${slotLimit}** active slot(s).`,
+              "Re-subscribe to unlock all slots, or unassign characters until you're within your base limit."
+            ],
             []
           );
           return;
@@ -5944,22 +6020,41 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       if (interaction.commandName === "premium") {
-        const appId = client.application?.id || process.env.CLIENT_ID || "";
-        const purchaseUrl = DISCORD_PREMIUM_PURCHASE_URL || (appId ? `https://discord.com/application-directory/${appId}` : "");
+        const firstSkuId = DISCORD_PREMIUM_SLOT_SKU_IDS.size > 0
+          ? Array.from(DISCORD_PREMIUM_SLOT_SKU_IDS)[0]
+          : null;
 
         const lines = [
-          "Premium purchases are handled by Discord, not by an in-bot currency command.",
-          purchaseUrl
-            ? `Open this page and use the app's premium purchase flow: ${purchaseUrl}`
-            : "Open this app's profile in Discord and use the Premium purchase flow.",
-          "After buying, run `/wallet` and check `Slot Sources: Base + Premium`."
+          `${BULLET_EMOJI_RAW} Subscribe to unlock **+${DISCORD_PREMIUM_SUBSCRIPTION_SLOTS} extra character slots** through Discord.`,
+          `${BULLET_EMOJI_RAW} Slots are active for as long as your subscription is running.`,
+          `${BULLET_EMOJI_RAW} If you cancel, the subscription slots disappear but your characters are never deleted.`,
+          `${BULLET_EMOJI_RAW} After subscribing, run \`/wallet\` to confirm your slots are active.`
         ];
+
+        let extraComponents = [];
+        if (firstSkuId) {
+          const premiumButton = new ButtonBuilder()
+            .setStyle(ButtonStyle.Premium)
+            .setSkuId(firstSkuId);
+          extraComponents = [
+            {
+              type: 1,
+              components: [premiumButton.toJSON()]
+            }
+          ];
+        } else {
+          const appId = client.application?.id || process.env.CLIENT_ID || "";
+          const purchaseUrl = DISCORD_PREMIUM_PURCHASE_URL || (appId ? `https://discord.com/application-directory/${appId}` : "");
+          if (purchaseUrl) {
+            lines.push(`Purchase link: ${purchaseUrl}`);
+          }
+        }
 
         await replyComponentsV2(
           interaction,
-          "Premium",
+          `Premium — +${DISCORD_PREMIUM_SUBSCRIPTION_SLOTS} Character Slots (Subscription)`,
           lines,
-          [],
+          extraComponents,
           { ephemeral: true }
         );
         return;
@@ -8397,6 +8492,46 @@ client.on("interactionCreate", async (interaction) => {
     }
   } finally {
     clearAckGuard();
+  }
+});
+
+client.on("entitlementCreate", (entitlement) => {
+  try {
+    const skuId = getEntitlementSkuId(entitlement);
+    const userId = getEntitlementUserId(entitlement);
+    const guildId = getEntitlementGuildId(entitlement);
+    console.log(`[Entitlement] Created: SKU=${skuId}, User=${userId || "none"}, Guild=${guildId || "none"}`);
+
+    if (DISCORD_PREMIUM_SLOT_SKU_IDS.size === 0 || !DISCORD_PREMIUM_SLOT_SKU_IDS.has(skuId) || !userId) {
+      return;
+    }
+
+    // Eagerly update the in-memory cache so the user's subscription slots are visible immediately
+    if (guildId) {
+      const scopeKey = getUserSlotsKey(guildId, userId);
+      entitlementSlotBonusByScopeUser.set(scopeKey, DISCORD_PREMIUM_SUBSCRIPTION_SLOTS);
+    }
+  } catch (error) {
+    console.error("Failed to handle entitlementCreate:", error);
+  }
+});
+
+client.on("entitlementDelete", (entitlement) => {
+  try {
+    const skuId = getEntitlementSkuId(entitlement);
+    const userId = getEntitlementUserId(entitlement);
+    const guildId = getEntitlementGuildId(entitlement);
+    console.log(`[Entitlement] Deleted: SKU=${skuId}, User=${userId || "none"}, Guild=${guildId || "none"}`);
+
+    if (DISCORD_PREMIUM_SLOT_SKU_IDS.size === 0 || !DISCORD_PREMIUM_SLOT_SKU_IDS.has(skuId) || !userId || !guildId) {
+      return;
+    }
+
+    // Remove from in-memory cache; next interaction will re-sync from Discord
+    const scopeKey = getUserSlotsKey(guildId, userId);
+    entitlementSlotBonusByScopeUser.delete(scopeKey);
+  } catch (error) {
+    console.error("Failed to handle entitlementDelete:", error);
   }
 });
 
