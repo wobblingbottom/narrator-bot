@@ -1591,6 +1591,8 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
   const logsChannel = getLogsChannelIdForGuild(guildId);
   const allowedSayChannels = getSayAllowedChannelIds(guildId);
   const roleplayEnabled = isRoleplayEnabledForGuild(guildId);
+  const maxAdminRolePreview = 3;
+  const maxSayChannelPreview = 3;
 
   const components = [
     { type: 10, content: "## Setup Manager" },
@@ -1620,9 +1622,12 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
   if (roleIds.length === 0) {
     components.push({ type: 10, content: `${BULLET_EMOJI_RAW} No admin roles configured.` });
   } else {
-    for (const roleId of roleIds) {
-      components.push({ type: 10, content: `${BULLET_EMOJI_RAW} <@&${roleId}>` });
-    }
+    components.push({ type: 10, content: `${BULLET_EMOJI_RAW} Configured: ${roleIds.length} role(s).` });
+    const rolePreview = roleIds.slice(0, maxAdminRolePreview).map((roleId) => `<@&${roleId}>`).join(", ");
+    components.push({
+      type: 10,
+      content: `${BULLET_EMOJI_RAW} Preview: ${rolePreview}${roleIds.length > maxAdminRolePreview ? `, and ${roleIds.length - maxAdminRolePreview} more` : ""}`
+    });
   }
 
   components.push({
@@ -1674,9 +1679,12 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
   if (allowedSayChannels.length === 0) {
     components.push({ type: 10, content: `${BULLET_EMOJI_RAW} Current: All channels allowed` });
   } else {
-    for (const channelId of allowedSayChannels.slice(0, 25)) {
-      components.push({ type: 10, content: `${BULLET_EMOJI_RAW} <#${channelId}>` });
-    }
+    components.push({ type: 10, content: `${BULLET_EMOJI_RAW} Restricted to ${allowedSayChannels.length} channel(s).` });
+    const channelPreview = allowedSayChannels.slice(0, maxSayChannelPreview).map((channelId) => `<#${channelId}>`).join(", ");
+    components.push({
+      type: 10,
+      content: `${BULLET_EMOJI_RAW} Preview: ${channelPreview}${allowedSayChannels.length > maxSayChannelPreview ? `, and ${allowedSayChannels.length - maxSayChannelPreview} more` : ""}`
+    });
   }
   components.push({ type: 10, content: `${BULLET_EMOJI_RAW} Threads inherit permission from their parent channel.` });
   components.push({
