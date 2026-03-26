@@ -6117,11 +6117,20 @@ client.on("interactionCreate", async (interaction) => {
         const subcommand = interaction.options.getSubcommand();
 
         if (subcommand === "panel") {
-          await interaction.reply({
-            flags: 32768,
-            components: buildSetupAdminPanel(interaction.guildId),
-            ephemeral: true
-          });
+          try {
+            const panelComponents = buildSetupAdminPanel(interaction.guildId);
+            await interaction.reply({
+              flags: 32768,
+              components: panelComponents,
+              ephemeral: true
+            });
+          } catch (error) {
+            console.error("[SETUP PANEL ERROR]", error);
+            await interaction.reply({
+              content: `Error building setup panel: ${error.message || String(error)}`,
+              ephemeral: true
+            }).catch(e => console.error("[ERROR REPLY FAILED]", e));
+          }
           return;
         }
 
