@@ -50,6 +50,8 @@ const WEBHOOKS_PATH = path.join(DATA_DIR, "webhooks.json");
 const LOGS_CHANNEL_PATH = path.join(DATA_DIR, "logsChannel.json");
 const ADMIN_ROLES_PATH = path.join(DATA_DIR, "adminRoles.json");
 const SAY_CHANNELS_PATH = path.join(DATA_DIR, "sayChannels.json");
+const ROLEPLAY_ENABLED_PATH = path.join(DATA_DIR, "roleplayEnabled.json");
+const DEV_NEWS_WEBHOOKS_PATH = path.join(DATA_DIR, "devNewsWebhooks.json");
 const MESSAGE_LOGS_PATH = path.join(DATA_DIR, "messageLogs.json");
 const USERS_PROFILES_PATH = path.join(DATA_DIR, "userProfiles.json");
 const POINTS_PATH = path.join(DATA_DIR, "points.json");
@@ -82,6 +84,12 @@ const DISCORD_PREMIUM_SLOT_SKU_IDS = new Set(
     .filter((value) => value.length > 0)
 );
 const DISCORD_PREMIUM_PURCHASE_URL = String(process.env.DISCORD_PREMIUM_PURCHASE_URL || "").trim();
+const BOT_OWNER_IDS = new Set(
+  String(process.env.BOT_OWNER_IDS || process.env.BOT_OWNER_ID || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+);
 const CURRENCY_EMOJI_RAW = (process.env.CURRENCY_EMOJI || "<:sundrop:1479231387864399963>").trim();
 const SHOP_ITEM_EMOJI_RAW = "<:pointer:1478835623853949109>";
 const POINTS_EMOJI_RAW = "<:sundrop:1479231387864399963>";
@@ -320,6 +328,8 @@ let webhooks = readJson(WEBHOOKS_PATH, {});
 let logsChannelId = readJson(LOGS_CHANNEL_PATH, null);
 let adminRoles = readJson(ADMIN_ROLES_PATH, {});
 let sayChannels = readJson(SAY_CHANNELS_PATH, {});
+let roleplayEnabledByGuild = readJson(ROLEPLAY_ENABLED_PATH, {});
+let devNewsWebhooks = readJson(DEV_NEWS_WEBHOOKS_PATH, {});
 let messageLogs = readJson(MESSAGE_LOGS_PATH, []);
 let userProfiles = readJson(USERS_PROFILES_PATH, {});
 let points = readJson(POINTS_PATH, {});
@@ -339,6 +349,14 @@ if (!adminRoles || typeof adminRoles !== "object" || Array.isArray(adminRoles)) 
 
 if (!sayChannels || typeof sayChannels !== "object" || Array.isArray(sayChannels)) {
   sayChannels = {};
+}
+
+if (!roleplayEnabledByGuild || typeof roleplayEnabledByGuild !== "object" || Array.isArray(roleplayEnabledByGuild)) {
+  roleplayEnabledByGuild = {};
+}
+
+if (!devNewsWebhooks || typeof devNewsWebhooks !== "object" || Array.isArray(devNewsWebhooks)) {
+  devNewsWebhooks = {};
 }
 
 if (!points || typeof points !== "object" || Array.isArray(points)) {
@@ -1008,6 +1026,14 @@ function saveSayChannels() {
   writeJson(SAY_CHANNELS_PATH, sayChannels);
 }
 
+function saveRoleplayEnabledByGuild() {
+  writeJson(ROLEPLAY_ENABLED_PATH, roleplayEnabledByGuild);
+}
+
+function saveDevNewsWebhooks() {
+  writeJson(DEV_NEWS_WEBHOOKS_PATH, devNewsWebhooks);
+}
+
 function saveMessageLogs() {
   writeJson(MESSAGE_LOGS_PATH, messageLogs);
 }
@@ -1164,6 +1190,30 @@ function setSayAllowedChannelIds(guildId, channelIds) {
   saveSayChannels();
 }
 
+function isRoleplayEnabledForGuild(guildId) {
+  if (!guildId) {
+    return true;
+  }
+
+  const key = getScopeId(guildId);
+  return roleplayEnabledByGuild[key] !== false;
+}
+
+function setRoleplayEnabledForGuild(guildId, enabled) {
+  if (!guildId) {
+    return;
+  }
+
+  const key = getScopeId(guildId);
+  if (enabled === false) {
+    roleplayEnabledByGuild[key] = false;
+  } else {
+    delete roleplayEnabledByGuild[key];
+  }
+
+  saveRoleplayEnabledByGuild();
+}
+
 function isSayAllowedInChannel(guildId, channel) {
   if (!guildId || !channel) {
     return false;
@@ -1212,6 +1262,146 @@ function hasAdminAccess(interaction) {
   }
 
   return false;
+}
+
+function isBotOwner(userId) {
+  if (!userId) {
+    return false;
+  }
+
+  if (BOT_OWNER_IDS.size === 0) {
+    return false;
+  }
+
+  return BOT_OWNER_IDS.has(String(userId));
+}
+
+async function getOrCreateDevNewsWebhook(channel, botMember) {
+  if (!channel?.id || !channel?.isTextBased?.()) {
+    throw new Error("Invalid target channel for dev news webhook.");
+  }
+
+  const channelId = channel.id;
+  const cached = devNewsWebhooks[channelId];
+  if (cached?.id && cached?.token) {
+    try {
+      const cachedClient = new WebhookClient({
+        id: cached.id,
+        token: cached.token
+      });
+      await cachedClient.fetch();
+      return cached;
+    } catch {
+      delete devNewsWebhooks[channelId];
+      saveDevNewsWebhooks();
+    }
+  }
+
+  const permissions = channel.permissionsFor(botMember);
+  if (!permissions?.has(PermissionFlagsBits.ManageWebhooks)) {
+    throw new Error("Missing ManageWebhooks permission.");
+  }
+
+  const created = await channel.createWebhook({ name: "Narrator Dev News" });
+  if (!created?.id || !created?.token) {
+    throw new Error("Failed to create webhook token.");
+  }
+
+  const stored = {
+    id: created.id,
+    token: created.token
+  };
+  devNewsWebhooks[channelId] = stored;
+  saveDevNewsWebhooks();
+  return stored;
+}
+
+async function broadcastDevNewsUpdate(sourceInteraction, content) {
+  const result = {
+    totalGuilds: client.guilds.cache.size,
+    sent: 0,
+    skippedNoChannel: 0,
+    skippedNoPermission: 0,
+    failed: 0
+  };
+
+  for (const guild of client.guilds.cache.values()) {
+    const logsChannelId = getLogsChannelIdForGuild(guild.id);
+    if (!logsChannelId) {
+      result.skippedNoChannel += 1;
+      continue;
+    }
+
+    try {
+      const channel = await guild.channels.fetch(logsChannelId).catch(() => null);
+      if (!channel || !channel.isTextBased()) {
+        result.failed += 1;
+        continue;
+      }
+
+      const botMember = guild.members.me || await guild.members.fetchMe().catch(() => null);
+      if (!botMember) {
+        result.failed += 1;
+        continue;
+      }
+
+      const sendPermissions = channel.permissionsFor(botMember);
+      if (!sendPermissions?.has(PermissionFlagsBits.SendMessages)) {
+        result.skippedNoPermission += 1;
+        continue;
+      }
+
+      const webhookInfo = await getOrCreateDevNewsWebhook(channel, botMember);
+      const webhookClient = new WebhookClient({
+        id: webhookInfo.id,
+        token: webhookInfo.token
+      });
+
+      await webhookClient.send({
+        content,
+        username: "The Narrator • Dev News",
+        avatarURL: client.user?.displayAvatarURL?.() || undefined,
+        allowedMentions: { parse: [] }
+      });
+
+      result.sent += 1;
+    } catch (error) {
+      if (String(error?.message || "").includes("ManageWebhooks")) {
+        result.skippedNoPermission += 1;
+      } else {
+        result.failed += 1;
+      }
+    }
+  }
+
+  const summaryLines = [
+    `${SUCCESSFUL_EMOJI_RAW} Broadcast completed.`,
+    `Guilds seen: **${result.totalGuilds}**`,
+    `Sent: **${result.sent}**`,
+    `Skipped (no logs channel): **${result.skippedNoChannel}**`,
+    `Skipped (missing permissions): **${result.skippedNoPermission}**`,
+    `Failed: **${result.failed}**`
+  ];
+
+  await replyComponentsV2(
+    sourceInteraction,
+    "Dev News Broadcast",
+    summaryLines,
+    [],
+    { ephemeral: true }
+  );
+}
+
+function canUseRoleplayCommands(interaction) {
+  if (!interaction?.inGuild?.() || !interaction.guildId) {
+    return false;
+  }
+
+  if (isRoleplayEnabledForGuild(interaction.guildId)) {
+    return true;
+  }
+
+  return hasAdminAccess(interaction);
 }
 
 function generateShopRoleItemId() {
@@ -1400,6 +1590,7 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
   const roleIds = getAdminRoleIds(guildId);
   const logsChannel = getLogsChannelIdForGuild(guildId);
   const allowedSayChannels = getSayAllowedChannelIds(guildId);
+  const roleplayEnabled = isRoleplayEnabledForGuild(guildId);
 
   const components = [
     { type: 10, content: "## Setup Manager" },
@@ -1502,6 +1693,52 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
         style: 2,
         label: "Clear /say Channels",
         custom_id: "setup:panel:clear-say-channels"
+      }
+    ]
+  });
+
+  components.push({ type: 14, divider: true, spacing: 1 });
+  components.push({ type: 10, content: "### Roleplay" });
+  components.push({
+    type: 10,
+    content: roleplayEnabled
+      ? `${BULLET_EMOJI_RAW} Status: Enabled for everyone`
+      : `${BULLET_EMOJI_RAW} Status: Disabled for normal users (admins and bot managers can still use /say commands)`
+  });
+  components.push({
+    type: 1,
+    components: [
+      {
+        type: 2,
+        style: 3,
+        label: "Enable Roleplay",
+        custom_id: "setup:panel:enable-roleplay",
+        disabled: roleplayEnabled
+      },
+      {
+        type: 2,
+        style: 4,
+        label: "Disable Roleplay",
+        custom_id: "setup:panel:disable-roleplay",
+        disabled: !roleplayEnabled
+      }
+    ]
+  });
+
+  components.push({ type: 14, divider: true, spacing: 1 });
+  components.push({ type: 10, content: "### Dev News" });
+  components.push({
+    type: 10,
+    content: `${BULLET_EMOJI_RAW} Broadcast webhook updates to all servers using their configured logs channel (bot owner only).`
+  });
+  components.push({
+    type: 1,
+    components: [
+      {
+        type: 2,
+        style: 1,
+        label: "Broadcast Dev News",
+        custom_id: "setup:panel:broadcast-news"
       }
     ]
   });
@@ -3285,6 +3522,18 @@ async function registerCommands() {
               { name: "User Wallet", value: "user" },
               { name: "Character Wallet", value: "character" }
             )
+        )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("broadcast-news")
+        .setDescription("Broadcast a dev news update to all configured server logs channels (bot owner only)")
+        .addStringOption((option) =>
+          option
+            .setName("message")
+            .setDescription("Update message to broadcast")
+            .setRequired(true)
+            .setMaxLength(1800)
         )
     );
 
@@ -5079,6 +5328,16 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
+        if (!canUseRoleplayCommands(interaction)) {
+          await editComponentsV2(
+            interaction,
+            null,
+            ["Characters can't send messages because server admins have disabled it."],
+            []
+          );
+          return;
+        }
+
         const channel = interaction.channel;
         if (
           !channel ||
@@ -5444,6 +5703,16 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
+        if (!canUseRoleplayCommands(interaction)) {
+          await editComponentsV2(
+            interaction,
+            null,
+            ["Characters can't send messages because server admins have disabled it."],
+            []
+          );
+          return;
+        }
+
         const messageIdRaw = interaction.options.getString("message_id", true);
         const messageId = String(messageIdRaw || "").trim();
 
@@ -5586,6 +5855,16 @@ client.on("interactionCreate", async (interaction) => {
             interaction,
             null,
             ["This command can only be used in a server."],
+            []
+          );
+          return;
+        }
+
+        if (!canUseRoleplayCommands(interaction)) {
+          await editComponentsV2(
+            interaction,
+            null,
+            ["Characters can't send messages because server admins have disabled it."],
             []
           );
           return;
@@ -5843,6 +6122,26 @@ client.on("interactionCreate", async (interaction) => {
             components: buildSetupAdminPanel(interaction.guildId),
             ephemeral: true
           });
+          return;
+        }
+
+        if (subcommand === "broadcast-news") {
+          if (!isBotOwner(interaction.user.id)) {
+            await replyComponentsV2(
+              interaction,
+              "Dev News Broadcast",
+              ["Only bot owners can broadcast dev news updates."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          const rawMessage = interaction.options.getString("message", true).trim();
+          const content = `## Narrator Update\n${rawMessage}`;
+
+          await interaction.deferReply({ ephemeral: true, flags: 32768 });
+          await broadcastDevNewsUpdate(interaction, content);
           return;
         }
 
@@ -6587,6 +6886,65 @@ client.on("interactionCreate", async (interaction) => {
               `${UNSUCCESSFUL_EMOJI_RAW} /say channel clear cancelled.`
             )
           });
+          return;
+        }
+
+        if (action === "enable-roleplay") {
+          setRoleplayEnabledForGuild(interaction.guildId, true);
+          await interaction.update({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `${SUCCESSFUL_EMOJI_RAW} Roleplay enabled. Everyone can use /say commands.`
+            )
+          });
+          return;
+        }
+
+        if (action === "disable-roleplay") {
+          setRoleplayEnabledForGuild(interaction.guildId, false);
+          await interaction.update({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `${SUCCESSFUL_EMOJI_RAW} Roleplay disabled for normal users. Only admins and bot managers can use /say commands.`
+            )
+          });
+          return;
+        }
+
+        if (action === "broadcast-news") {
+          if (!isBotOwner(interaction.user.id)) {
+            await interaction.reply({
+              content: "Only bot owners can broadcast dev news updates.",
+              flags: 32768,
+              ephemeral: true
+            });
+            return;
+          }
+
+          const modal = {
+            title: "Broadcast Dev News",
+            custom_id: "setup:panel:broadcast-news:modal",
+            components: [
+              {
+                type: 1,
+                components: [
+                  {
+                    type: 4,
+                    custom_id: "message",
+                    style: 2,
+                    label: "Update Message",
+                    placeholder: "Type the update you want to send across all servers.",
+                    required: true,
+                    max_length: 1800
+                  }
+                ]
+              }
+            ]
+          };
+
+          await interaction.showModal(modal);
           return;
         }
 
@@ -7658,6 +8016,31 @@ client.on("interactionCreate", async (interaction) => {
           ),
           ephemeral: true
         });
+        return;
+      }
+
+      if (interaction.customId === "setup:panel:broadcast-news:modal") {
+        if (!interaction.inGuild() || !hasAdminAccess(interaction) || !isBotOwner(interaction.user.id)) {
+          await acknowledgeInteractionSilently(interaction);
+          return;
+        }
+
+        const rawMessage = String(interaction.fields.getTextInputValue("message") || "").trim();
+        if (!rawMessage) {
+          await interaction.reply({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} Message cannot be empty.`
+            ),
+            ephemeral: true
+          });
+          return;
+        }
+
+        const content = `## Narrator Update\n${rawMessage}`;
+        await interaction.deferReply({ ephemeral: true, flags: 32768 });
+        await broadcastDevNewsUpdate(interaction, content);
         return;
       }
       
