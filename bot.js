@@ -1321,6 +1321,37 @@ function setDevNewsChannelId(guildId, channelId) {
   saveDevNewsChannel();
 }
 
+async function getOrCreateDevNewsWebhook(channel, botMember) {
+  if (!channel?.isTextBased?.()) {
+    throw new Error("Configured dev news channel is not text-based.");
+  }
+
+  const permissions = botMember ? channel.permissionsFor(botMember) : null;
+  if (!permissions?.has(PermissionFlagsBits.SendMessages)) {
+    throw new Error("Missing SendMessages permission in the configured dev news channel.");
+  }
+  if (!permissions?.has(PermissionFlagsBits.ManageWebhooks)) {
+    throw new Error("Missing ManageWebhooks permission in the configured dev news channel.");
+  }
+
+  const existingWebhooks = await channel.fetchWebhooks().catch(() => null);
+  if (existingWebhooks) {
+    const reusable = existingWebhooks.find((webhook) => {
+      if (!webhook?.token) {
+        return false;
+      }
+      const ownerId = webhook.owner?.id || "";
+      return ownerId === client.user?.id || webhook.name === "Narrator Dev News";
+    });
+
+    if (reusable) {
+      return reusable;
+    }
+  }
+
+  return channel.createWebhook({ name: "Narrator Dev News" });
+}
+
 function isBotOwner(userId) {
   const normalizedUserId = normalizeDiscordId(userId);
   if (!normalizedUserId) {
@@ -6131,11 +6162,18 @@ client.on("interactionCreate", async (interaction) => {
 
           const botMember = interaction.guild.members.me || await interaction.guild.members.fetchMe().catch(() => null);
           const sendPermissions = botMember ? channel.permissionsFor(botMember) : null;
-          if (!sendPermissions?.has(PermissionFlagsBits.SendMessages)) {
+          if (!sendPermissions?.has(PermissionFlagsBits.SendMessages) || !sendPermissions?.has(PermissionFlagsBits.ManageWebhooks)) {
+            const missing = [];
+            if (!sendPermissions?.has(PermissionFlagsBits.SendMessages)) {
+              missing.push("SendMessages");
+            }
+            if (!sendPermissions?.has(PermissionFlagsBits.ManageWebhooks)) {
+              missing.push("ManageWebhooks");
+            }
             await replyComponentsV2(
               interaction,
               "Dev News",
-              [`I cannot send messages in <#${channel.id}>. Check channel permissions.`],
+              [`I am missing ${missing.join(", ")} in <#${channel.id}>.`],
               [],
               { ephemeral: true }
             );
@@ -6143,10 +6181,24 @@ client.on("interactionCreate", async (interaction) => {
           }
 
           const content = `## Narrator Update\n${rawMessage}`;
-          await channel.send({
-            content,
-            allowedMentions: { parse: [] }
-          });
+          try {
+            const webhook = await getOrCreateDevNewsWebhook(channel, botMember);
+            await webhook.send({
+              content,
+              username: "Narrator • Dev News",
+              avatarURL: client.user?.displayAvatarURL?.() || undefined,
+              allowedMentions: { parse: [] }
+            });
+          } catch (error) {
+            await replyComponentsV2(
+              interaction,
+              "Dev News",
+              [`Failed to send announcement: ${error.message || String(error)}`],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
 
           await replyComponentsV2(
             interaction,
