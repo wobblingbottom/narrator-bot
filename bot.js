@@ -1650,7 +1650,6 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
       ? `${BULLET_EMOJI_RAW} Current: <#${devNewsChannel}>`
       : `${BULLET_EMOJI_RAW} Current: Not set`
   });
-  components.push({ type: 10, content: `${BULLET_EMOJI_RAW} Use /setup send-news to post an update.` });
   components.push({
     type: 1,
     components: [
