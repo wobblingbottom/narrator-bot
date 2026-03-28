@@ -6896,9 +6896,9 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "set-dev-news-channel") {
-          if (!isBotOwner(interaction.user.id)) {
+          if (!hasAdminAccess(interaction)) {
             await interaction.reply({
-              content: "Only the bot developer can set the dev news channel.",
+              content: "You do not have permission to set the dev news channel.",
               ephemeral: true
             });
             return;
@@ -6922,9 +6922,9 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "clear-dev-news-channel") {
-          if (!isBotOwner(interaction.user.id)) {
+          if (!hasAdminAccess(interaction)) {
             await interaction.reply({
-              content: "Only the bot developer can clear the dev news channel.",
+              content: "You do not have permission to clear the dev news channel.",
               ephemeral: true
             });
             return;
@@ -7651,7 +7651,7 @@ client.on("interactionCreate", async (interaction) => {
       interaction.customId === "setup:panel:set-dev-news-channel:select" &&
       Array.isArray(interaction.values)
     ) {
-      if (!interaction.inGuild() || !hasAdminAccess(interaction) || !isBotOwner(interaction.user.id)) {
+      if (!interaction.inGuild() || !hasAdminAccess(interaction)) {
         await acknowledgeInteractionSilently(interaction);
         return;
       }
