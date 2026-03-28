@@ -6940,26 +6940,20 @@ client.on("interactionCreate", async (interaction) => {
             return;
           }
 
-          const modal = {
-            title: "Broadcast Dev News",
-            custom_id: "setup:panel:broadcast-news:modal",
-            components: [
-              {
-                type: 1,
-                components: [
-                  {
-                    type: 4,
-                    custom_id: "message",
-                    style: 2,
-                    label: "Update Message",
-                    placeholder: "Type the update you want to send across all servers.",
-                    required: true,
-                    max_length: 1800
-                  }
-                ]
-              }
-            ]
-          };
+          const messageInput = new TextInputBuilder()
+            .setCustomId("message")
+            .setLabel("Update Message")
+            .setStyle(TextInputStyle.Paragraph)
+            .setPlaceholder("Type the update you want to send across all servers.")
+            .setRequired(true)
+            .setMaxLength(1800);
+
+          const actionRow = new ActionRowBuilder().addComponents(messageInput);
+
+          const modal = new ModalBuilder()
+            .setCustomId("setup:panel:broadcast-news:modal")
+            .setTitle("Broadcast Dev News")
+            .addComponents(actionRow);
 
           await interaction.showModal(modal);
           return;
