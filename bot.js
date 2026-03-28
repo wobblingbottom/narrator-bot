@@ -6856,10 +6856,10 @@ client.on("interactionCreate", async (interaction) => {
                 type: 1,
                 components: [
                   {
-                    type: 7,
+                    type: 8,
                     custom_id: "setup:panel:set-dev-news-channel:select",
                     placeholder: "Select a channel for dev news",
-                    channel_types: [0, 1, 11, 12],
+                    channel_types: [0, 5, 15],
                     min_values: 1,
                     max_values: 1
                   }
