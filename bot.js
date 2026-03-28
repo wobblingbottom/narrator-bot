@@ -6931,9 +6931,9 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "broadcast-news") {
-          if (!isBotOwner(interaction.user.id)) {
+          if (!hasAdminAccess(interaction)) {
             await interaction.reply({
-              content: "Only bot owners can broadcast dev news updates.",
+              content: "Only server admins can broadcast dev news updates.",
               flags: 32768,
               ephemeral: true
             });
@@ -8031,7 +8031,7 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       if (interaction.customId === "setup:panel:broadcast-news:modal") {
-        if (!interaction.inGuild() || !hasAdminAccess(interaction) || !isBotOwner(interaction.user.id)) {
+        if (!interaction.inGuild() || !hasAdminAccess(interaction)) {
           await acknowledgeInteractionSilently(interaction);
           return;
         }
