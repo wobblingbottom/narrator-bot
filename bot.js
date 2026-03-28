@@ -10,6 +10,7 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ChannelSelectMenuBuilder,
   ChannelType,
   Client,
   GatewayIntentBits,
@@ -6898,29 +6899,23 @@ client.on("interactionCreate", async (interaction) => {
           if (!isBotOwner(interaction.user.id)) {
             await interaction.reply({
               content: "Only the bot developer can set the dev news channel.",
-              flags: 32768,
               ephemeral: true
             });
             return;
           }
 
+          const channelSelect = new ChannelSelectMenuBuilder()
+            .setCustomId("setup:panel:set-dev-news-channel:select")
+            .setPlaceholder("Select a channel for dev news")
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+            .setMinValues(1)
+            .setMaxValues(1);
+
+          const row = new ActionRowBuilder().addComponents(channelSelect);
+
           await interaction.reply({
             content: "Choose a channel from the dropdown.",
-            components: [
-              {
-                type: 1,
-                components: [
-                  {
-                    type: 8,
-                    custom_id: "setup:panel:set-dev-news-channel:select",
-                    placeholder: "Select a channel for dev news",
-                    channel_types: [0, 5],
-                    min_values: 1,
-                    max_values: 1
-                  }
-                ]
-              }
-            ],
+            components: [row],
             ephemeral: true
           });
           return;
@@ -6930,7 +6925,6 @@ client.on("interactionCreate", async (interaction) => {
           if (!isBotOwner(interaction.user.id)) {
             await interaction.reply({
               content: "Only the bot developer can clear the dev news channel.",
-              flags: 32768,
               ephemeral: true
             });
             return;
