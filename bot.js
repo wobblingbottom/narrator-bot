@@ -3452,7 +3452,7 @@ async function registerCommands() {
     .addSubcommand((subcommand) =>
       subcommand
         .setName("send-news")
-        .setDescription("Send a dev news update to this server's configured dev news channel")
+        .setDescription("Send a dev news update to this server's configured dev news channel (bot owner only)")
         .addStringOption((option) =>
           option
             .setName("message")
@@ -6060,6 +6060,17 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (subcommand === "send-news") {
+          if (!isBotOwner(interaction.user.id)) {
+            await replyComponentsV2(
+              interaction,
+              "Dev News",
+              ["Only the bot developer can send dev announcements."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
           const rawMessage = interaction.options.getString("message", true).trim();
           const channelId = getDevNewsChannelId(interaction.guildId);
 
@@ -6884,6 +6895,15 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "set-dev-news-channel") {
+          if (!isBotOwner(interaction.user.id)) {
+            await interaction.reply({
+              content: "Only the bot developer can set the dev news channel.",
+              flags: 32768,
+              ephemeral: true
+            });
+            return;
+          }
+
           await interaction.reply({
             content: "Choose a channel from the dropdown.",
             components: [
@@ -6907,6 +6927,15 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (action === "clear-dev-news-channel") {
+          if (!isBotOwner(interaction.user.id)) {
+            await interaction.reply({
+              content: "Only the bot developer can clear the dev news channel.",
+              flags: 32768,
+              ephemeral: true
+            });
+            return;
+          }
+
           setDevNewsChannelId(interaction.guildId, null);
           await interaction.update({
             flags: 32768,
@@ -7628,7 +7657,7 @@ client.on("interactionCreate", async (interaction) => {
       interaction.customId === "setup:panel:set-dev-news-channel:select" &&
       Array.isArray(interaction.values)
     ) {
-      if (!interaction.inGuild() || !hasAdminAccess(interaction)) {
+      if (!interaction.inGuild() || !hasAdminAccess(interaction) || !isBotOwner(interaction.user.id)) {
         await acknowledgeInteractionSilently(interaction);
         return;
       }
