@@ -85,10 +85,16 @@ const DISCORD_PREMIUM_SLOT_SKU_IDS = new Set(
     .filter((value) => value.length > 0)
 );
 const DISCORD_PREMIUM_PURCHASE_URL = String(process.env.DISCORD_PREMIUM_PURCHASE_URL || "").trim();
+function normalizeDiscordId(rawValue) {
+  const value = String(rawValue || "").trim();
+  const match = value.match(/(\d{17,22})/);
+  return match ? match[1] : "";
+}
+
 const BOT_OWNER_IDS = new Set(
   String(process.env.BOT_OWNER_IDS || process.env.BOT_OWNER_ID || "")
     .split(",")
-    .map((value) => value.trim())
+    .map((value) => normalizeDiscordId(value))
     .filter((value) => value.length > 0)
 );
 const CURRENCY_EMOJI_RAW = (process.env.CURRENCY_EMOJI || "<:sundrop:1479231387864399963>").trim();
@@ -1291,7 +1297,8 @@ function setDevNewsChannelId(guildId, channelId) {
 }
 
 function isBotOwner(userId) {
-  if (!userId) {
+  const normalizedUserId = normalizeDiscordId(userId);
+  if (!normalizedUserId) {
     return false;
   }
 
@@ -1299,7 +1306,7 @@ function isBotOwner(userId) {
     return false;
   }
 
-  return BOT_OWNER_IDS.has(String(userId));
+  return BOT_OWNER_IDS.has(normalizedUserId);
 }
 
 function canUseRoleplayCommands(interaction) {
