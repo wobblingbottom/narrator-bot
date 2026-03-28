@@ -1649,6 +1649,7 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
       ? `${BULLET_EMOJI_RAW} Current: <#${devNewsChannel}>`
       : `${BULLET_EMOJI_RAW} Current: Not set`
   });
+  components.push({ type: 10, content: `${BULLET_EMOJI_RAW} Use /setup send-news to post an update.` });
   components.push({
     type: 1,
     components: [
@@ -3450,12 +3451,12 @@ async function registerCommands() {
     )
     .addSubcommand((subcommand) =>
       subcommand
-        .setName("broadcast-news")
-        .setDescription("Broadcast a dev news update to all configured server logs channels (bot owner only)")
+        .setName("send-news")
+        .setDescription("Send a dev news update to this server's configured dev news channel")
         .addStringOption((option) =>
           option
             .setName("message")
-            .setDescription("Update message to broadcast")
+            .setDescription("Update message to post")
             .setRequired(true)
             .setMaxLength(1800)
         )
@@ -6058,6 +6059,62 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
+        if (subcommand === "send-news") {
+          const rawMessage = interaction.options.getString("message", true).trim();
+          const channelId = getDevNewsChannelId(interaction.guildId);
+
+          if (!channelId) {
+            await replyComponentsV2(
+              interaction,
+              "Dev News",
+              ["Set a dev news channel first from the setup panel."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
+          if (!channel || !channel.isTextBased()) {
+            await replyComponentsV2(
+              interaction,
+              "Dev News",
+              ["Configured dev news channel is invalid. Set it again from the setup panel."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          const botMember = interaction.guild.members.me || await interaction.guild.members.fetchMe().catch(() => null);
+          const sendPermissions = botMember ? channel.permissionsFor(botMember) : null;
+          if (!sendPermissions?.has(PermissionFlagsBits.SendMessages)) {
+            await replyComponentsV2(
+              interaction,
+              "Dev News",
+              [`I cannot send messages in <#${channel.id}>. Check channel permissions.`],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          const content = `## Narrator Update\n${rawMessage}`;
+          await channel.send({
+            content,
+            allowedMentions: { parse: [] }
+          });
+
+          await replyComponentsV2(
+            interaction,
+            "Dev News",
+            [`Posted update in <#${channel.id}>.`],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
         if (subcommand === "add-points") {
           const walletType = interaction.options.getString("wallet", true);
           const amount = interaction.options.getInteger("amount", true);
@@ -6837,7 +6894,7 @@ client.on("interactionCreate", async (interaction) => {
                     type: 8,
                     custom_id: "setup:panel:set-dev-news-channel:select",
                     placeholder: "Select a channel for dev news",
-                    channel_types: [0, 5, 15],
+                    channel_types: [0, 5],
                     min_values: 1,
                     max_values: 1
                   }
