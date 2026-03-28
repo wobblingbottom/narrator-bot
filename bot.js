@@ -1505,7 +1505,6 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
 
   const components = [
     { type: 10, content: "## Setup Manager" },
-    { type: 10, content: "Manage admin roles, logs channel, and /say allowed channels for this server." },
     { type: 14, divider: true, spacing: 1 }
   ];
 
@@ -1595,7 +1594,6 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
       content: `${BULLET_EMOJI_RAW} Preview: ${channelPreview}${allowedSayChannels.length > maxSayChannelPreview ? `, and ${allowedSayChannels.length - maxSayChannelPreview} more` : ""}`
     });
   }
-  components.push({ type: 10, content: `${BULLET_EMOJI_RAW} Threads inherit permission from their parent channel.` });
   components.push({
     type: 1,
     components: [
@@ -6057,26 +6055,6 @@ client.on("interactionCreate", async (interaction) => {
               ephemeral: true
             }).catch(e => console.error("[ERROR REPLY FAILED]", e));
           }
-          return;
-        }
-
-        if (subcommand === "broadcast-news") {
-          if (!isBotOwner(interaction.user.id)) {
-            await replyComponentsV2(
-              interaction,
-              "Dev News Broadcast",
-              ["Only bot owners can broadcast dev news updates."],
-              [],
-              { ephemeral: true }
-            );
-            return;
-          }
-
-          const rawMessage = interaction.options.getString("message", true).trim();
-          const content = `## Narrator Update\n${rawMessage}`;
-
-          await interaction.deferReply({ ephemeral: true, flags: 32768 });
-          await broadcastDevNewsUpdate(interaction, content);
           return;
         }
 
