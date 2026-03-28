@@ -51,7 +51,7 @@ const LOGS_CHANNEL_PATH = path.join(DATA_DIR, "logsChannel.json");
 const ADMIN_ROLES_PATH = path.join(DATA_DIR, "adminRoles.json");
 const SAY_CHANNELS_PATH = path.join(DATA_DIR, "sayChannels.json");
 const ROLEPLAY_ENABLED_PATH = path.join(DATA_DIR, "roleplayEnabled.json");
-const DEV_NEWS_WEBHOOKS_PATH = path.join(DATA_DIR, "devNewsWebhooks.json");
+const DEV_NEWS_CHANNEL_PATH = path.join(DATA_DIR, "devNewsChannel.json");
 const MESSAGE_LOGS_PATH = path.join(DATA_DIR, "messageLogs.json");
 const USERS_PROFILES_PATH = path.join(DATA_DIR, "userProfiles.json");
 const POINTS_PATH = path.join(DATA_DIR, "points.json");
@@ -329,7 +329,7 @@ let logsChannelId = readJson(LOGS_CHANNEL_PATH, null);
 let adminRoles = readJson(ADMIN_ROLES_PATH, {});
 let sayChannels = readJson(SAY_CHANNELS_PATH, {});
 let roleplayEnabledByGuild = readJson(ROLEPLAY_ENABLED_PATH, {});
-let devNewsWebhooks = readJson(DEV_NEWS_WEBHOOKS_PATH, {});
+let devNewsChannel = readJson(DEV_NEWS_CHANNEL_PATH, {});
 let messageLogs = readJson(MESSAGE_LOGS_PATH, []);
 let userProfiles = readJson(USERS_PROFILES_PATH, {});
 let points = readJson(POINTS_PATH, {});
@@ -355,8 +355,8 @@ if (!roleplayEnabledByGuild || typeof roleplayEnabledByGuild !== "object" || Arr
   roleplayEnabledByGuild = {};
 }
 
-if (!devNewsWebhooks || typeof devNewsWebhooks !== "object" || Array.isArray(devNewsWebhooks)) {
-  devNewsWebhooks = {};
+if (!devNewsChannel || typeof devNewsChannel !== "object" || Array.isArray(devNewsChannel)) {
+  devNewsChannel = {};
 }
 
 if (!points || typeof points !== "object" || Array.isArray(points)) {
@@ -1030,8 +1030,8 @@ function saveRoleplayEnabledByGuild() {
   writeJson(ROLEPLAY_ENABLED_PATH, roleplayEnabledByGuild);
 }
 
-function saveDevNewsWebhooks() {
-  writeJson(DEV_NEWS_WEBHOOKS_PATH, devNewsWebhooks);
+function saveDevNewsChannel() {
+  writeJson(DEV_NEWS_CHANNEL_PATH, devNewsChannel);
 }
 
 function saveMessageLogs() {
@@ -1264,6 +1264,31 @@ function hasAdminAccess(interaction) {
   return false;
 }
 
+function getDevNewsChannelId(guildId) {
+  if (!guildId) {
+    return null;
+  }
+
+  const key = getScopeId(guildId);
+  const value = devNewsChannel[key];
+  return typeof value === "string" ? value : null;
+}
+
+function setDevNewsChannelId(guildId, channelId) {
+  if (!guildId) {
+    return;
+  }
+
+  const key = getScopeId(guildId);
+  if (channelId) {
+    devNewsChannel[key] = String(channelId);
+  } else {
+    delete devNewsChannel[key];
+  }
+
+  saveDevNewsChannel();
+}
+
 function isBotOwner(userId) {
   if (!userId) {
     return false;
@@ -1274,122 +1299,6 @@ function isBotOwner(userId) {
   }
 
   return BOT_OWNER_IDS.has(String(userId));
-}
-
-async function getOrCreateDevNewsWebhook(channel, botMember) {
-  if (!channel?.id || !channel?.isTextBased?.()) {
-    throw new Error("Invalid target channel for dev news webhook.");
-  }
-
-  const channelId = channel.id;
-  const cached = devNewsWebhooks[channelId];
-  if (cached?.id && cached?.token) {
-    try {
-      const cachedClient = new WebhookClient({
-        id: cached.id,
-        token: cached.token
-      });
-      await cachedClient.fetch();
-      return cached;
-    } catch {
-      delete devNewsWebhooks[channelId];
-      saveDevNewsWebhooks();
-    }
-  }
-
-  const permissions = channel.permissionsFor(botMember);
-  if (!permissions?.has(PermissionFlagsBits.ManageWebhooks)) {
-    throw new Error("Missing ManageWebhooks permission.");
-  }
-
-  const created = await channel.createWebhook({ name: "Narrator Dev News" });
-  if (!created?.id || !created?.token) {
-    throw new Error("Failed to create webhook token.");
-  }
-
-  const stored = {
-    id: created.id,
-    token: created.token
-  };
-  devNewsWebhooks[channelId] = stored;
-  saveDevNewsWebhooks();
-  return stored;
-}
-
-async function broadcastDevNewsUpdate(sourceInteraction, content) {
-  const result = {
-    totalGuilds: client.guilds.cache.size,
-    sent: 0,
-    skippedNoChannel: 0,
-    skippedNoPermission: 0,
-    failed: 0
-  };
-
-  for (const guild of client.guilds.cache.values()) {
-    const logsChannelId = getLogsChannelIdForGuild(guild.id);
-    if (!logsChannelId) {
-      result.skippedNoChannel += 1;
-      continue;
-    }
-
-    try {
-      const channel = await guild.channels.fetch(logsChannelId).catch(() => null);
-      if (!channel || !channel.isTextBased()) {
-        result.failed += 1;
-        continue;
-      }
-
-      const botMember = guild.members.me || await guild.members.fetchMe().catch(() => null);
-      if (!botMember) {
-        result.failed += 1;
-        continue;
-      }
-
-      const sendPermissions = channel.permissionsFor(botMember);
-      if (!sendPermissions?.has(PermissionFlagsBits.SendMessages)) {
-        result.skippedNoPermission += 1;
-        continue;
-      }
-
-      const webhookInfo = await getOrCreateDevNewsWebhook(channel, botMember);
-      const webhookClient = new WebhookClient({
-        id: webhookInfo.id,
-        token: webhookInfo.token
-      });
-
-      await webhookClient.send({
-        content,
-        username: "The Narrator • Dev News",
-        avatarURL: client.user?.displayAvatarURL?.() || undefined,
-        allowedMentions: { parse: [] }
-      });
-
-      result.sent += 1;
-    } catch (error) {
-      if (String(error?.message || "").includes("ManageWebhooks")) {
-        result.skippedNoPermission += 1;
-      } else {
-        result.failed += 1;
-      }
-    }
-  }
-
-  const summaryLines = [
-    `${SUCCESSFUL_EMOJI_RAW} Broadcast completed.`,
-    `Guilds seen: **${result.totalGuilds}**`,
-    `Sent: **${result.sent}**`,
-    `Skipped (no logs channel): **${result.skippedNoChannel}**`,
-    `Skipped (missing permissions): **${result.skippedNoPermission}**`,
-    `Failed: **${result.failed}**`
-  ];
-
-  await replyComponentsV2(
-    sourceInteraction,
-    "Dev News Broadcast",
-    summaryLines,
-    [],
-    { ephemeral: true }
-  );
 }
 
 function canUseRoleplayCommands(interaction) {
@@ -1734,19 +1643,28 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
   });
 
   components.push({ type: 14, divider: true, spacing: 1 });
-  components.push({ type: 10, content: "### Dev News" });
+  components.push({ type: 10, content: "### Dev News Channel" });
+  const devNewsChannel = getDevNewsChannelId(guildId);
   components.push({
     type: 10,
-    content: `${BULLET_EMOJI_RAW} Broadcast webhook updates to all servers using their configured logs channel (bot owner only).`
+    content: devNewsChannel
+      ? `${BULLET_EMOJI_RAW} Current: <#${devNewsChannel}>`
+      : `${BULLET_EMOJI_RAW} Current: Not set`
   });
   components.push({
     type: 1,
     components: [
       {
         type: 2,
-        style: 1,
-        label: "Broadcast Dev News",
-        custom_id: "setup:panel:broadcast-news"
+        style: 2,
+        label: "Set Dev News Channel",
+        custom_id: "setup:panel:set-dev-news-channel"
+      },
+      {
+        type: 2,
+        style: 2,
+        label: "Clear Dev News Channel",
+        custom_id: "setup:panel:clear-dev-news-channel"
       }
     ]
   });
@@ -6930,32 +6848,38 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
-        if (action === "broadcast-news") {
-          if (!hasAdminAccess(interaction)) {
-            await interaction.reply({
-              content: "Only server admins can broadcast dev news updates.",
-              flags: 32768,
-              ephemeral: true
-            });
-            return;
-          }
+        if (action === "set-dev-news-channel") {
+          await interaction.reply({
+            content: "Choose a channel from the dropdown.",
+            components: [
+              {
+                type: 1,
+                components: [
+                  {
+                    type: 7,
+                    custom_id: "setup:panel:set-dev-news-channel:select",
+                    placeholder: "Select a channel for dev news",
+                    channel_types: [0, 1, 11, 12],
+                    min_values: 1,
+                    max_values: 1
+                  }
+                ]
+              }
+            ],
+            ephemeral: true
+          });
+          return;
+        }
 
-          const messageInput = new TextInputBuilder()
-            .setCustomId("message")
-            .setLabel("Update Message")
-            .setStyle(TextInputStyle.Paragraph)
-            .setPlaceholder("Type the update you want to send across all servers.")
-            .setRequired(true)
-            .setMaxLength(1800);
-
-          const actionRow = new ActionRowBuilder().addComponents(messageInput);
-
-          const modal = new ModalBuilder()
-            .setCustomId("setup:panel:broadcast-news:modal")
-            .setTitle("Broadcast Dev News")
-            .addComponents(actionRow);
-
-          await interaction.showModal(modal);
+        if (action === "clear-dev-news-channel") {
+          setDevNewsChannelId(interaction.guildId, null);
+          await interaction.update({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `${SUCCESSFUL_EMOJI_RAW} Dev news channel cleared.`
+            )
+          });
           return;
         }
 
@@ -7666,6 +7590,42 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (
+      interaction.customId === "setup:panel:set-dev-news-channel:select" &&
+      Array.isArray(interaction.values)
+    ) {
+      if (!interaction.inGuild() || !hasAdminAccess(interaction)) {
+        await acknowledgeInteractionSilently(interaction);
+        return;
+      }
+
+      const channelId = interaction.values?.[0];
+      const channel = channelId ? interaction.guild.channels.cache.get(channelId) : null;
+
+      if (!channel || !channel.isTextBased()) {
+        await interaction.reply({
+          flags: 32768,
+          components: buildSetupAdminPanel(
+            interaction.guildId,
+            `${UNSUCCESSFUL_EMOJI_RAW} Invalid channel selection.`
+          ),
+          ephemeral: true
+        });
+        return;
+      }
+
+      setDevNewsChannelId(interaction.guildId, channel.id);
+      await interaction.reply({
+        flags: 32768,
+        components: buildSetupAdminPanel(
+          interaction.guildId,
+          `${SUCCESSFUL_EMOJI_RAW} Dev news channel set to <#${channel.id}>.`
+        ),
+        ephemeral: true
+      });
+      return;
+    }
+
+    if (
       interaction.customId === "setup:panel:set-say-channels:select" &&
       Array.isArray(interaction.values)
     ) {
@@ -8030,30 +7990,6 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      if (interaction.customId === "setup:panel:broadcast-news:modal") {
-        if (!interaction.inGuild() || !hasAdminAccess(interaction)) {
-          await acknowledgeInteractionSilently(interaction);
-          return;
-        }
-
-        const rawMessage = String(interaction.fields.getTextInputValue("message") || "").trim();
-        if (!rawMessage) {
-          await interaction.reply({
-            flags: 32768,
-            components: buildSetupAdminPanel(
-              interaction.guildId,
-              `${UNSUCCESSFUL_EMOJI_RAW} Message cannot be empty.`
-            ),
-            ephemeral: true
-          });
-          return;
-        }
-
-        const content = `## Narrator Update\n${rawMessage}`;
-        await interaction.deferReply({ ephemeral: true, flags: 32768 });
-        await broadcastDevNewsUpdate(interaction, content);
-        return;
-      }
       
       if (interaction.customId === "edit_user_profile_modal") {
         const userId = interaction.user.id;
