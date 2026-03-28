@@ -10,7 +10,6 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  ChannelSelectMenuBuilder,
   ChannelType,
   Client,
   GatewayIntentBits,
@@ -52,7 +51,6 @@ const LOGS_CHANNEL_PATH = path.join(DATA_DIR, "logsChannel.json");
 const ADMIN_ROLES_PATH = path.join(DATA_DIR, "adminRoles.json");
 const SAY_CHANNELS_PATH = path.join(DATA_DIR, "sayChannels.json");
 const ROLEPLAY_ENABLED_PATH = path.join(DATA_DIR, "roleplayEnabled.json");
-const DEV_NEWS_CHANNEL_PATH = path.join(DATA_DIR, "devNewsChannel.json");
 const MESSAGE_LOGS_PATH = path.join(DATA_DIR, "messageLogs.json");
 const USERS_PROFILES_PATH = path.join(DATA_DIR, "userProfiles.json");
 const POINTS_PATH = path.join(DATA_DIR, "points.json");
@@ -85,43 +83,6 @@ const DISCORD_PREMIUM_SLOT_SKU_IDS = new Set(
     .filter((value) => value.length > 0)
 );
 const DISCORD_PREMIUM_PURCHASE_URL = String(process.env.DISCORD_PREMIUM_PURCHASE_URL || "").trim();
-function normalizeDiscordId(rawValue) {
-  const value = String(rawValue || "").trim();
-  const match = value.match(/(\d{17,22})/);
-  return match ? match[1] : "";
-}
-
-const BOT_OWNER_IDS = new Set(
-  String(process.env.BOT_OWNER_IDS || process.env.BOT_OWNER_ID || "")
-    .split(",")
-    .map((value) => normalizeDiscordId(value))
-    .filter((value) => value.length > 0)
-);
-const RESOLVED_BOT_OWNER_IDS = new Set(BOT_OWNER_IDS);
-
-async function refreshResolvedBotOwnerIds() {
-  try {
-    const application = await client.application?.fetch?.();
-    const directOwnerId = normalizeDiscordId(application?.owner?.id);
-    if (directOwnerId) {
-      RESOLVED_BOT_OWNER_IDS.add(directOwnerId);
-    }
-
-    const teamMembers = application?.owner?.members;
-    if (teamMembers?.values) {
-      for (const member of teamMembers.values()) {
-        const memberId = normalizeDiscordId(member?.id || member?.user?.id);
-        if (memberId) {
-          RESOLVED_BOT_OWNER_IDS.add(memberId);
-        }
-      }
-    }
-
-    console.log(`[Owner IDs] Loaded ${RESOLVED_BOT_OWNER_IDS.size} owner id(s).`);
-  } catch (error) {
-    console.error("Failed to refresh resolved bot owner ids:", error);
-  }
-}
 const CURRENCY_EMOJI_RAW = (process.env.CURRENCY_EMOJI || "<:sundrop:1479231387864399963>").trim();
 const SHOP_ITEM_EMOJI_RAW = "<:pointer:1478835623853949109>";
 const POINTS_EMOJI_RAW = "<:sundrop:1479231387864399963>";
@@ -361,7 +322,6 @@ let logsChannelId = readJson(LOGS_CHANNEL_PATH, null);
 let adminRoles = readJson(ADMIN_ROLES_PATH, {});
 let sayChannels = readJson(SAY_CHANNELS_PATH, {});
 let roleplayEnabledByGuild = readJson(ROLEPLAY_ENABLED_PATH, {});
-let devNewsChannel = readJson(DEV_NEWS_CHANNEL_PATH, {});
 let messageLogs = readJson(MESSAGE_LOGS_PATH, []);
 let userProfiles = readJson(USERS_PROFILES_PATH, {});
 let points = readJson(POINTS_PATH, {});
@@ -385,10 +345,6 @@ if (!sayChannels || typeof sayChannels !== "object" || Array.isArray(sayChannels
 
 if (!roleplayEnabledByGuild || typeof roleplayEnabledByGuild !== "object" || Array.isArray(roleplayEnabledByGuild)) {
   roleplayEnabledByGuild = {};
-}
-
-if (!devNewsChannel || typeof devNewsChannel !== "object" || Array.isArray(devNewsChannel)) {
-  devNewsChannel = {};
 }
 
 if (!points || typeof points !== "object" || Array.isArray(points)) {
@@ -1062,10 +1018,6 @@ function saveRoleplayEnabledByGuild() {
   writeJson(ROLEPLAY_ENABLED_PATH, roleplayEnabledByGuild);
 }
 
-function saveDevNewsChannel() {
-  writeJson(DEV_NEWS_CHANNEL_PATH, devNewsChannel);
-}
-
 function saveMessageLogs() {
   writeJson(MESSAGE_LOGS_PATH, messageLogs);
 }
@@ -1294,75 +1246,6 @@ function hasAdminAccess(interaction) {
   }
 
   return false;
-}
-
-function getDevNewsChannelId(guildId) {
-  if (!guildId) {
-    return null;
-  }
-
-  const key = getScopeId(guildId);
-  const value = devNewsChannel[key];
-  return typeof value === "string" ? value : null;
-}
-
-function setDevNewsChannelId(guildId, channelId) {
-  if (!guildId) {
-    return;
-  }
-
-  const key = getScopeId(guildId);
-  if (channelId) {
-    devNewsChannel[key] = String(channelId);
-  } else {
-    delete devNewsChannel[key];
-  }
-
-  saveDevNewsChannel();
-}
-
-async function getOrCreateDevNewsWebhook(channel, botMember) {
-  if (!channel?.isTextBased?.()) {
-    throw new Error("Configured dev news channel is not text-based.");
-  }
-
-  const permissions = botMember ? channel.permissionsFor(botMember) : null;
-  if (!permissions?.has(PermissionFlagsBits.SendMessages)) {
-    throw new Error("Missing SendMessages permission in the configured dev news channel.");
-  }
-  if (!permissions?.has(PermissionFlagsBits.ManageWebhooks)) {
-    throw new Error("Missing ManageWebhooks permission in the configured dev news channel.");
-  }
-
-  const existingWebhooks = await channel.fetchWebhooks().catch(() => null);
-  if (existingWebhooks) {
-    const reusable = existingWebhooks.find((webhook) => {
-      if (!webhook?.token) {
-        return false;
-      }
-      const ownerId = webhook.owner?.id || "";
-      return ownerId === client.user?.id || webhook.name === "Narrator Dev News";
-    });
-
-    if (reusable) {
-      return reusable;
-    }
-  }
-
-  return channel.createWebhook({ name: "Narrator Dev News" });
-}
-
-function isBotOwner(userId) {
-  const normalizedUserId = normalizeDiscordId(userId);
-  if (!normalizedUserId) {
-    return false;
-  }
-
-  if (RESOLVED_BOT_OWNER_IDS.size === 0) {
-    return false;
-  }
-
-  return RESOLVED_BOT_OWNER_IDS.has(normalizedUserId);
 }
 
 function canUseRoleplayCommands(interaction) {
@@ -1700,33 +1583,6 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
         label: "Disable Roleplay",
         custom_id: "setup:panel:disable-roleplay",
         disabled: !roleplayEnabled
-      }
-    ]
-  });
-
-  components.push({ type: 14, divider: true, spacing: 1 });
-  components.push({ type: 10, content: "### Dev News Channel" });
-  const devNewsChannel = getDevNewsChannelId(guildId);
-  components.push({
-    type: 10,
-    content: devNewsChannel
-      ? `${BULLET_EMOJI_RAW} Current: <#${devNewsChannel}>`
-      : `${BULLET_EMOJI_RAW} Current: Not set`
-  });
-  components.push({
-    type: 1,
-    components: [
-      {
-        type: 2,
-        style: 2,
-        label: "Set Dev News Channel",
-        custom_id: "setup:panel:set-dev-news-channel"
-      },
-      {
-        type: 2,
-        style: 2,
-        label: "Clear Dev News Channel",
-        custom_id: "setup:panel:clear-dev-news-channel"
       }
     ]
   });
@@ -3510,18 +3366,6 @@ async function registerCommands() {
               { name: "User Wallet", value: "user" },
               { name: "Character Wallet", value: "character" }
             )
-        )
-    )
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName("send-news")
-        .setDescription("Send a dev news update to this server's configured dev news channel (bot owner only)")
-        .addStringOption((option) =>
-          option
-            .setName("message")
-            .setDescription("Update message to post")
-            .setRequired(true)
-            .setMaxLength(1800)
         )
     );
 
@@ -6122,94 +5966,6 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
-        if (subcommand === "send-news") {
-          if (!isBotOwner(interaction.user.id)) {
-            await replyComponentsV2(
-              interaction,
-              "Dev News",
-              ["Only the bot developer can send dev announcements."],
-              [],
-              { ephemeral: true }
-            );
-            return;
-          }
-
-          const rawMessage = interaction.options.getString("message", true).trim();
-          const channelId = getDevNewsChannelId(interaction.guildId);
-
-          if (!channelId) {
-            await replyComponentsV2(
-              interaction,
-              "Dev News",
-              ["Set a dev news channel first from the setup panel."],
-              [],
-              { ephemeral: true }
-            );
-            return;
-          }
-
-          const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
-          if (!channel || !channel.isTextBased()) {
-            await replyComponentsV2(
-              interaction,
-              "Dev News",
-              ["Configured dev news channel is invalid. Set it again from the setup panel."],
-              [],
-              { ephemeral: true }
-            );
-            return;
-          }
-
-          const botMember = interaction.guild.members.me || await interaction.guild.members.fetchMe().catch(() => null);
-          const sendPermissions = botMember ? channel.permissionsFor(botMember) : null;
-          if (!sendPermissions?.has(PermissionFlagsBits.SendMessages) || !sendPermissions?.has(PermissionFlagsBits.ManageWebhooks)) {
-            const missing = [];
-            if (!sendPermissions?.has(PermissionFlagsBits.SendMessages)) {
-              missing.push("SendMessages");
-            }
-            if (!sendPermissions?.has(PermissionFlagsBits.ManageWebhooks)) {
-              missing.push("ManageWebhooks");
-            }
-            await replyComponentsV2(
-              interaction,
-              "Dev News",
-              [`I am missing ${missing.join(", ")} in <#${channel.id}>.`],
-              [],
-              { ephemeral: true }
-            );
-            return;
-          }
-
-          const content = `## Narrator Update\n${rawMessage}`;
-          try {
-            const webhook = await getOrCreateDevNewsWebhook(channel, botMember);
-            await webhook.send({
-              content,
-              username: "Narrator • Dev News",
-              avatarURL: client.user?.displayAvatarURL?.() || undefined,
-              allowedMentions: { parse: [] }
-            });
-          } catch (error) {
-            await replyComponentsV2(
-              interaction,
-              "Dev News",
-              [`Failed to send announcement: ${error.message || String(error)}`],
-              [],
-              { ephemeral: true }
-            );
-            return;
-          }
-
-          await replyComponentsV2(
-            interaction,
-            "Dev News",
-            [`Posted update in <#${channel.id}>.`],
-            [],
-            { ephemeral: true }
-          );
-          return;
-        }
-
         if (subcommand === "add-points") {
           const walletType = interaction.options.getString("wallet", true);
           const amount = interaction.options.getInteger("amount", true);
@@ -6978,52 +6734,6 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
-        if (action === "set-dev-news-channel") {
-          if (!hasAdminAccess(interaction)) {
-            await interaction.reply({
-              content: "You do not have permission to set the dev news channel.",
-              ephemeral: true
-            });
-            return;
-          }
-
-          const channelSelect = new ChannelSelectMenuBuilder()
-            .setCustomId("setup:panel:set-dev-news-channel:select")
-            .setPlaceholder("Select a channel for dev news")
-            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
-            .setMinValues(1)
-            .setMaxValues(1);
-
-          const row = new ActionRowBuilder().addComponents(channelSelect);
-
-          await interaction.reply({
-            content: "Choose a channel from the dropdown.",
-            components: [row],
-            ephemeral: true
-          });
-          return;
-        }
-
-        if (action === "clear-dev-news-channel") {
-          if (!hasAdminAccess(interaction)) {
-            await interaction.reply({
-              content: "You do not have permission to clear the dev news channel.",
-              ephemeral: true
-            });
-            return;
-          }
-
-          setDevNewsChannelId(interaction.guildId, null);
-          await interaction.update({
-            flags: 32768,
-            components: buildSetupAdminPanel(
-              interaction.guildId,
-              `${SUCCESSFUL_EMOJI_RAW} Dev news channel cleared.`
-            )
-          });
-          return;
-        }
-
         if (action === "add-admin-role") {
           await interaction.reply({
             content: "Choose a role from the dropdown.",
@@ -7724,42 +7434,6 @@ client.on("interactionCreate", async (interaction) => {
         components: buildSetupAdminPanel(
           interaction.guildId,
           `<:success:1479234774861221898> Logs channel set to <#${channel.id}>.`
-        ),
-        ephemeral: true
-      });
-      return;
-    }
-
-    if (
-      interaction.customId === "setup:panel:set-dev-news-channel:select" &&
-      Array.isArray(interaction.values)
-    ) {
-      if (!interaction.inGuild() || !hasAdminAccess(interaction)) {
-        await acknowledgeInteractionSilently(interaction);
-        return;
-      }
-
-      const channelId = interaction.values?.[0];
-      const channel = channelId ? interaction.guild.channels.cache.get(channelId) : null;
-
-      if (!channel || !channel.isTextBased()) {
-        await interaction.reply({
-          flags: 32768,
-          components: buildSetupAdminPanel(
-            interaction.guildId,
-            `${UNSUCCESSFUL_EMOJI_RAW} Invalid channel selection.`
-          ),
-          ephemeral: true
-        });
-        return;
-      }
-
-      setDevNewsChannelId(interaction.guildId, channel.id);
-      await interaction.reply({
-        flags: 32768,
-        components: buildSetupAdminPanel(
-          interaction.guildId,
-          `${SUCCESSFUL_EMOJI_RAW} Dev news channel set to <#${channel.id}>.`
         ),
         ephemeral: true
       });
@@ -9103,7 +8777,6 @@ while (true) {
   loginAttempt++;
   try {
     await client.login(token);
-    await refreshResolvedBotOwnerIds();
     break; // success
   } catch (error) {
     if (isTokenError(error)) {
