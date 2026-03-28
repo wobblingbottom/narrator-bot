@@ -97,6 +97,31 @@ const BOT_OWNER_IDS = new Set(
     .map((value) => normalizeDiscordId(value))
     .filter((value) => value.length > 0)
 );
+const RESOLVED_BOT_OWNER_IDS = new Set(BOT_OWNER_IDS);
+
+async function refreshResolvedBotOwnerIds() {
+  try {
+    const application = await client.application?.fetch?.();
+    const directOwnerId = normalizeDiscordId(application?.owner?.id);
+    if (directOwnerId) {
+      RESOLVED_BOT_OWNER_IDS.add(directOwnerId);
+    }
+
+    const teamMembers = application?.owner?.members;
+    if (teamMembers?.values) {
+      for (const member of teamMembers.values()) {
+        const memberId = normalizeDiscordId(member?.id || member?.user?.id);
+        if (memberId) {
+          RESOLVED_BOT_OWNER_IDS.add(memberId);
+        }
+      }
+    }
+
+    console.log(`[Owner IDs] Loaded ${RESOLVED_BOT_OWNER_IDS.size} owner id(s).`);
+  } catch (error) {
+    console.error("Failed to refresh resolved bot owner ids:", error);
+  }
+}
 const CURRENCY_EMOJI_RAW = (process.env.CURRENCY_EMOJI || "<:sundrop:1479231387864399963>").trim();
 const SHOP_ITEM_EMOJI_RAW = "<:pointer:1478835623853949109>";
 const POINTS_EMOJI_RAW = "<:sundrop:1479231387864399963>";
@@ -1302,11 +1327,11 @@ function isBotOwner(userId) {
     return false;
   }
 
-  if (BOT_OWNER_IDS.size === 0) {
+  if (RESOLVED_BOT_OWNER_IDS.size === 0) {
     return false;
   }
 
-  return BOT_OWNER_IDS.has(normalizedUserId);
+  return RESOLVED_BOT_OWNER_IDS.has(normalizedUserId);
 }
 
 function canUseRoleplayCommands(interaction) {
@@ -9026,6 +9051,7 @@ while (true) {
   loginAttempt++;
   try {
     await client.login(token);
+    await refreshResolvedBotOwnerIds();
     break; // success
   } catch (error) {
     if (isTokenError(error)) {
