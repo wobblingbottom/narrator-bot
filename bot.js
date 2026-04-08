@@ -3154,22 +3154,21 @@ function buildShopView(guildId, userId, page = 0, statusLine = null) {
 
   pageItems.forEach((item, index) => {
     components.push({
-      type: 10,
-      content: `${item.emoji} **${item.name}**\n${item.description}\n**Wallet:** ${item.wallet}`
-    });
-
-    components.push({
-      type: 1,
+      type: 9,
       components: [
         {
-          type: 2,
-          style: 2,
-          custom_id: `shop:buy:${item.id}:${safePage}`,
-          label: `${item.cost}`,
-          emoji: typeof item.cost === "number" ? getCurrencyEmojiForButton() : undefined,
-          disabled: item.available === false
+          type: 10,
+          content: `${item.emoji} **${item.name}**\n${item.description}`
         }
-      ]
+      ],
+      accessory: {
+        type: 2,
+        style: 3,
+        custom_id: `shop:buy:${item.id}:${safePage}`,
+        label: `${item.cost}`,
+        emoji: typeof item.cost === "number" ? getCurrencyEmojiForButton() : undefined,
+        disabled: item.available === false
+      }
     });
 
     if (index < pageItems.length - 1) {
