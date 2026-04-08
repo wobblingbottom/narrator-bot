@@ -2786,10 +2786,9 @@ function getShopItems(guildId, userId) {
     const temporarySuffix = inventoryItem.isTemporary ? " (Temporary)" : "";
     const rarity = getItemRarityDisplay(inventoryItem);
     const category = getItemCategoryName(inventoryItem);
-    const categoryEmoji = getItemCategoryEmoji(inventoryItem);
     const weight = getItemWeight(inventoryItem);
     
-    let description = `${categoryEmoji} **${category}** • ${rarity}`;
+    let description = `**${category}** • ${rarity}`;
     if (weight > 0) {
       description += ` • ⚖️ ${weight}`;
     }
