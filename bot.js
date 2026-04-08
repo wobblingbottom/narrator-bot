@@ -61,6 +61,8 @@ const CHARACTER_UPGRADES_PATH = path.join(DATA_DIR, "characterUpgrades.json");
 const SHOP_ROLE_ITEMS_PATH = path.join(DATA_DIR, "shopRoleItems.json");
 const INVENTORY_ITEMS_PATH = path.join(DATA_DIR, "inventoryItems.json");
 const USER_INVENTORY_PATH = path.join(DATA_DIR, "userInventory.json");
+const ITEM_RECIPES_PATH = path.join(DATA_DIR, "itemRecipes.json");
+const TRADE_PROPOSALS_PATH = path.join(DATA_DIR, "tradeProposals.json");
 const ECONOMY_DB_PATH = path.join(DATA_DIR, "economy.sqlite");
 
 const MESSAGE_POINTS_MIN = 0.25;
@@ -107,6 +109,31 @@ const CHARACTER_UPGRADE_DEFINITIONS = {
     description: "Reduces this character's /say point cooldown by 50%"
   }
 };
+
+// Item rarity tiers with color codes
+const ITEM_RARITY_TIERS = {
+  common: { name: "Common", color: "#95A5A6", order: 1 },
+  uncommon: { name: "Uncommon", color: "#27AE60", order: 2 },
+  rare: { name: "Rare", color: "#3498DB", order: 3 },
+  epic: { name: "Epic", color: "#8E44AD", order: 4 },
+  legendary: { name: "Legendary", color: "#F39C12", order: 5 }
+};
+
+// Item categories for shop organization
+const ITEM_CATEGORIES = {
+  consumable: { name: "Consumable", emoji: "🧪" },
+  equipment: { name: "Equipment", emoji: "⚔️" },
+  quest: { name: "Quest Item", emoji: "📜" },
+  special: { name: "Special", emoji: "✨" },
+  other: { name: "Other", emoji: "📦" }
+};
+
+// Max inventory weight (for inventory capacity limits)
+const MAX_INVENTORY_WEIGHT = 100;
+const INVENTORY_WEIGHT_PER_SLOT = 10;
+
+// Item cooldown tracking (user + itemId = key for last use time)
+const itemCooldowns = new Map();
 
 const messagePointsCooldowns = new Map();
 const characterPointsCooldowns = new Map();
@@ -335,6 +362,8 @@ let characterUpgrades = readJson(CHARACTER_UPGRADES_PATH, {});
 let shopRoleItems = readJson(SHOP_ROLE_ITEMS_PATH, []);
 let inventoryItems = readJson(INVENTORY_ITEMS_PATH, []);
 let userInventory = readJson(USER_INVENTORY_PATH, {});
+let itemRecipes = readJson(ITEM_RECIPES_PATH, []);
+let tradeProposals = readJson(TRADE_PROPOSALS_PATH, []);
 let economyDb = null;
 
 if (!Array.isArray(shopRoleItems)) {
@@ -343,6 +372,14 @@ if (!Array.isArray(shopRoleItems)) {
 
 if (!Array.isArray(inventoryItems)) {
   inventoryItems = [];
+}
+
+if (!Array.isArray(itemRecipes)) {
+  itemRecipes = [];
+}
+
+if (!Array.isArray(tradeProposals)) {
+  tradeProposals = [];
 }
 
 if (!userInventory || typeof userInventory !== "object" || Array.isArray(userInventory)) {
@@ -1074,6 +1111,14 @@ function saveInventoryItems() {
 
 function saveUserInventory() {
   writeJson(USER_INVENTORY_PATH, userInventory);
+}
+
+function saveItemRecipes() {
+  writeJson(ITEM_RECIPES_PATH, itemRecipes);
+}
+
+function saveTradeProposals() {
+  writeJson(TRADE_PROPOSALS_PATH, tradeProposals);
 }
 
 function parseChannelIdInput(rawValue) {
@@ -2720,15 +2765,40 @@ function getShopItems(guildId, userId) {
 
   const guildInventoryItems = getInventoryItemsForGuild(guildId)
     .filter((item) => item.inShop === true)
-    .sort((first, second) => String(first.name || "").localeCompare(String(second.name || "")));
+    .sort((first, second) => {
+      // Sort by category, then by rarity, then by name
+      const categoryA = first.category || "other";
+      const categoryB = second.category || "other";
+      const rarityOrderA = ITEM_RARITY_TIERS[first.rarity || "common"]?.order || 0;
+      const rarityOrderB = ITEM_RARITY_TIERS[second.rarity || "common"]?.order || 0;
+      
+      if (categoryA !== categoryB) {
+        return categoryA.localeCompare(categoryB);
+      }
+      if (rarityOrderA !== rarityOrderB) {
+        return rarityOrderB - rarityOrderA; // Higher rarity first
+      }
+      return String(first.name || "").localeCompare(String(second.name || ""));
+    });
 
   for (const inventoryItem of guildInventoryItems) {
     const walletType = normalizeRoleItemWallet(inventoryItem.wallet);
     const temporarySuffix = inventoryItem.isTemporary ? " (Temporary)" : "";
+    const rarity = getItemRarityDisplay(inventoryItem);
+    const category = getItemCategoryName(inventoryItem);
+    const categoryEmoji = getItemCategoryEmoji(inventoryItem);
+    const weight = getItemWeight(inventoryItem);
+    
+    let description = `${categoryEmoji} **${category}** • ${rarity}`;
+    if (weight > 0) {
+      description += ` • ⚖️ ${weight}`;
+    }
+    description += `\n${inventoryItem.description}`;
+    
     items.push({
       id: `inv:${inventoryItem.id}`,
       name: `${inventoryItem.name}${temporarySuffix}`,
-      description: inventoryItem.description,
+      description: description,
       wallet: getRoleItemWalletLabel(walletType),
       cost: inventoryItem.price,
       emoji: SHOP_ITEM_EMOJI_RAW
@@ -2783,6 +2853,222 @@ function getInventorySummaryLines(guildId, userId) {
   return entries
     .sort((first, second) => first.itemName.localeCompare(second.itemName))
     .map((entry) => entry.line);
+}
+
+// ===== Advanced Inventory Features =====
+
+function getItemRarityDisplay(item) {
+  if (!item) return "Unknown";
+  const rarity = item.rarity || "common";
+  return ITEM_RARITY_TIERS[rarity]?.name || "Common";
+}
+
+function getItemCategoryName(item) {
+  if (!item) return "Other";
+  const category = item.category || "other";
+  return ITEM_CATEGORIES[category]?.name || "Other";
+}
+
+function getItemCategoryEmoji(item) {
+  if (!item) return ITEM_CATEGORIES.other.emoji;
+  const category = item.category || "other";
+  return ITEM_CATEGORIES[category]?.emoji || "📦";
+}
+
+function getItemWeight(item) {
+  if (!item) return 0;
+  const weight = Number(item.weight || 0);
+  return Number.isFinite(weight) && weight > 0 ? weight : 0;
+}
+
+function getTotalInventoryWeight(guildId, userId) {
+  const record = getUserInventoryRecord(guildId, userId, false);
+  let totalWeight = 0;
+
+  for (const [itemId, state] of Object.entries(record)) {
+    if (!state || typeof state !== "object") continue;
+    
+    const quantity = Number(state.quantity || 0);
+    if (quantity <= 0) continue;
+    
+    const item = getInventoryItemById(guildId, itemId);
+    const itemWeight = getItemWeight(item);
+    totalWeight += itemWeight * quantity;
+  }
+
+  return Math.floor(totalWeight);
+}
+
+function canAddToInventoryByWeight(guildId, userId, quantity, item) {
+  const currentWeight = getTotalInventoryWeight(guildId, userId);
+  const itemWeight = getItemWeight(item);
+  const addedWeight = itemWeight * (quantity || 1);
+  
+  return (currentWeight + addedWeight) <= MAX_INVENTORY_WEIGHT;
+}
+
+function getInventoryWeightPercentage(guildId, userId) {
+  const current = getTotalInventoryWeight(guildId, userId);
+  return Math.round((current / MAX_INVENTORY_WEIGHT) * 100);
+}
+
+function isItemOnCooldown(userId, itemId) {
+  const key = `${userId}:${itemId}`;
+  const lastUse = itemCooldowns.get(key);
+  if (!lastUse) return false;
+  
+  const now = Date.now();
+  return (now - lastUse) < 60000; // 1 minute cooldown by default
+}
+
+function getItemCooldownRemaining(userId, itemId) {
+  const key = `${userId}:${itemId}`;
+  const lastUse = itemCooldowns.get(key);
+  if (!lastUse) return 0;
+  
+  const remaining = 60000 - (Date.now() - lastUse);
+  return Math.max(0, remaining);
+}
+
+function setItemCooldown(userId, itemId) {
+  const key = `${userId}:${itemId}`;
+  itemCooldowns.set(key, Date.now());
+  
+  // Auto-cleanup after cooldown expires
+  setTimeout(() => {
+    itemCooldowns.delete(key);
+  }, 60000);
+}
+
+function useInventoryItem(guildId, userId, itemId, quantity = 1) {
+  const item = getInventoryItemById(guildId, itemId);
+  if (!item) return { success: false, reason: "Item not found" };
+
+  const itemState = getUserInventoryItemState(guildId, userId, itemId, false);
+  if (!itemState || itemState.quantity < quantity) {
+    return { success: false, reason: "Insufficient quantity" };
+  }
+
+  // Deduct from inventory
+  itemState.quantity -= quantity;
+  if (itemState.quantity <= 0) {
+    const record = getUserInventoryRecord(guildId, userId, false);
+    delete record[itemId];
+  }
+
+  saveUserInventory();
+  setItemCooldown(userId, itemId);
+  
+  return { success: true, item };
+}
+
+function giftInventoryItem(guildId, fromUserId, toUserId, itemId, quantity = 1) {
+  if (fromUserId === toUserId) {
+    return { success: false, reason: "Cannot gift to yourself" };
+  }
+
+  // Remove from sender
+  const fromState = getUserInventoryItemState(guildId, fromUserId, itemId, false);
+  if (!fromState || fromState.quantity < quantity) {
+    return { success: false, reason: "Insufficient quantity" };
+  }
+
+  fromState.quantity -= quantity;
+  if (fromState.quantity <= 0) {
+    const fromRecord = getUserInventoryRecord(guildId, fromUserId, false);
+    delete fromRecord[itemId];
+  }
+
+  // Add to recipient
+  addInventoryItemToUser(guildId, toUserId, itemId, quantity);
+  
+  return { success: true };
+}
+
+function createTradeProposal(guildId, initiatorId, targetId, offeredItemIds, requestedItemIds) {
+  const proposal = {
+    id: `trade-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    guildId,
+    initiatorId,
+    targetId,
+    offeredItems: offeredItemIds,
+    requestedItems: requestedItemIds,
+    status: "pending", // pending, accepted, rejected, completed
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 3600000).toISOString() // 1 hour expiry
+  };
+
+  tradeProposals.push(proposal);
+  saveTradeProposals();
+  
+  return proposal;
+}
+
+function getTradeProposal(proposalId) {
+  return tradeProposals.find(p => p.id === proposalId);
+}
+
+function getPendingTradesForUser(guildId, userId) {
+  return tradeProposals.filter(p => 
+    p.guildId === guildId && 
+    p.status === "pending" && 
+    p.targetId === userId
+  );
+}
+
+function acceptTradeProposal(proposalId) {
+  const proposal = getTradeProposal(proposalId);
+  if (!proposal || proposal.status !== "pending") {
+    return { success: false, reason: "Invalid or expired proposal" };
+  }
+
+  const { guildId, initiatorId, targetId, offeredItems, requestedItems } = proposal;
+
+  // Validate items still available
+  for (const itemId of offeredItems) {
+    const state = getUserInventoryItemState(guildId, initiatorId, itemId, false);
+    if (!state || state.quantity < 1) {
+      return { success: false, reason: "Initiator no longer has offered items" };
+    }
+  }
+
+  for (const itemId of requestedItems) {
+    const state = getUserInventoryItemState(guildId, targetId, itemId, false);
+    if (!state || state.quantity < 1) {
+      return { success: false, reason: "You no longer have requested items" };
+    }
+  }
+
+  // Execute trade
+  for (const itemId of offeredItems) {
+    const fromState = getUserInventoryItemState(guildId, initiatorId, itemId, false);
+    if (fromState) {
+      fromState.quantity--;
+      if (fromState.quantity <= 0) {
+        const record = getUserInventoryRecord(guildId, initiatorId, false);
+        delete record[itemId];
+      }
+      addInventoryItemToUser(guildId, targetId, itemId, 1);
+    }
+  }
+
+  for (const itemId of requestedItems) {
+    const fromState = getUserInventoryItemState(guildId, targetId, itemId, false);
+    if (fromState) {
+      fromState.quantity--;
+      if (fromState.quantity <= 0) {
+        const record = getUserInventoryRecord(guildId, targetId, false);
+        delete record[itemId];
+      }
+      addInventoryItemToUser(guildId, initiatorId, itemId, 1);
+    }
+  }
+
+  proposal.status = "completed";
+  saveTradeProposals();
+  saveUserInventory();
+  
+  return { success: true };
 }
 
 function getCurrencyEmojiForButton() {
@@ -2982,10 +3268,15 @@ function buildHelpView(guildId, userId, isAdmin, page = 0) {
           heading: "Economy",
           lines: [
             `${BULLET_EMOJI_RAW} \`/wallet\` — View your wallets`,
-            `${BULLET_EMOJI_RAW} \`/inventory\` — View your inventory and item holders`,
+            `${BULLET_EMOJI_RAW} \`/inventory\` — View your inventory with weight`,
+            `${BULLET_EMOJI_RAW} \`/use-item\` — Use/consume an item from your inventory`,
+            `${BULLET_EMOJI_RAW} \`/gift-item\` — Gift items to other users`,
+            `${BULLET_EMOJI_RAW} \`/trade propose\` — Propose a trade to another user`,
+            `${BULLET_EMOJI_RAW} \`/trade list\` — View pending trade proposals`,
+            `${BULLET_EMOJI_RAW} \`/trade accept\` — Accept a trade proposal`,
             `${BULLET_EMOJI_RAW} \`/points\` — View your points`,
             `${BULLET_EMOJI_RAW} \`/leaderboard\` — View rankings`,
-            `${BULLET_EMOJI_RAW} \`/shop\` — Buy slots and upgrades`
+            `${BULLET_EMOJI_RAW} \`/shop\` — Buy slots, upgrades, and items`
           ]
         },
         {
@@ -3771,6 +4062,40 @@ async function registerCommands() {
             .setRequired(true)
             .setMinValue(0)
         )
+        .addStringOption((option) =>
+          option
+            .setName("rarity")
+            .setDescription("Item rarity tier")
+            .setRequired(false)
+            .addChoices(
+              { name: "Common", value: "common" },
+              { name: "Uncommon", value: "uncommon" },
+              { name: "Rare", value: "rare" },
+              { name: "Epic", value: "epic" },
+              { name: "Legendary", value: "legendary" }
+            )
+        )
+        .addStringOption((option) =>
+          option
+            .setName("category")
+            .setDescription("Item category")
+            .setRequired(false)
+            .addChoices(
+              { name: "Consumable", value: "consumable" },
+              { name: "Equipment", value: "equipment" },
+              { name: "Quest Item", value: "quest" },
+              { name: "Special", value: "special" },
+              { name: "Other", value: "other" }
+            )
+        )
+        .addIntegerOption((option) =>
+          option
+            .setName("weight")
+            .setDescription("Item weight (units, 0-20)")
+            .setRequired(false)
+            .setMinValue(0)
+            .setMaxValue(20)
+        )
         .addBooleanOption((option) =>
           option
             .setName("temporary")
@@ -3844,6 +4169,84 @@ async function registerCommands() {
         .setName("user")
         .setDescription("User to view inventory for (admin only for others)")
         .setRequired(false)
+    );
+
+  const useItemCommand = new SlashCommandBuilder()
+    .setName("use-item")
+    .setDescription("Use/consume an item from your inventory")
+    .addStringOption((option) =>
+      option
+        .setName("item")
+        .setDescription("Item to use")
+        .setRequired(true)
+        .setAutocomplete(true)
+    );
+
+  const giftItemCommand = new SlashCommandBuilder()
+    .setName("gift-item")
+    .setDescription("Gift an item to another user")
+    .addStringOption((option) =>
+      option
+        .setName("item")
+        .setDescription("Item to gift")
+        .setRequired(true)
+        .setAutocomplete(true)
+    )
+    .addUserOption((option) =>
+      option
+        .setName("recipient")
+        .setDescription("User to gift to")
+        .setRequired(true)
+    )
+    .addIntegerOption((option) =>
+      option
+        .setName("quantity")
+        .setDescription("How many to gift (default: 1)")
+        .setRequired(false)
+        .setMinValue(1)
+    );
+
+  const tradeCommand = new SlashCommandBuilder()
+    .setName("trade")
+    .setDescription("Manage item trades with other users")
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("propose")
+        .setDescription("Propose a trade to another user")
+        .addUserOption((option) =>
+          option
+            .setName("user")
+            .setDescription("User to trade with")
+            .setRequired(true)
+        )
+        .addStringOption((option) =>
+          option
+            .setName("offer")
+            .setDescription("Item IDs to offer (comma-separated)")
+            .setRequired(true)
+        )
+        .addStringOption((option) =>
+          option
+            .setName("request")
+            .setDescription("Item IDs to request (comma-separated)")
+            .setRequired(true)
+        )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("list")
+        .setDescription("List pending trade proposals for you")
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("accept")
+        .setDescription("Accept a trade proposal")
+        .addStringOption((option) =>
+          option
+            .setName("trade_id")
+            .setDescription("Trade proposal ID")
+            .setRequired(true)
+        )
     );
 
   const botSayCommand = new SlashCommandBuilder()
@@ -3956,6 +4359,9 @@ async function registerCommands() {
     shopCommand.toJSON(),
     walletCommand.toJSON(),
     inventoryCommand.toJSON(),
+    useItemCommand.toJSON(),
+    giftItemCommand.toJSON(),
+    tradeCommand.toJSON(),
     lookupCommand.toJSON(),
     leaderboardCommand.toJSON(),
     pointsCommand.toJSON()
@@ -4524,6 +4930,25 @@ client.on("interactionCreate", async (interaction) => {
         if (focusedValue.name === "character") {
           const choices = getCharacterAutocompleteChoices(interaction.guildId, focusedValue.value);
           await interaction.respond(choices);
+        }
+      }
+
+      if (interaction.commandName === "use-item" || interaction.commandName === "gift-item") {
+        const focusedValue = interaction.options.getFocused(true);
+        if (focusedValue.name === "item") {
+          const choices = getInventoryItemAutocompleteChoices(interaction.guildId, focusedValue.value);
+          await interaction.respond(choices);
+          return;
+        }
+      }
+
+      if (interaction.commandName === "trade") {
+        const subcommand = interaction.options.getSubcommand(false);
+        const focusedValue = interaction.options.getFocused(true);
+        if (subcommand === "propose" && (focusedValue.name === "offer" || focusedValue.name === "request")) {
+          const choices = getInventoryItemAutocompleteChoices(interaction.guildId, focusedValue.value);
+          await interaction.respond(choices);
+          return;
         }
       }
       return;
@@ -5664,14 +6089,361 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         const lines = getInventorySummaryLines(interaction.guildId, targetUser.id);
+        const weight = getTotalInventoryWeight(interaction.guildId, targetUser.id);
+        const weightPercent = getInventoryWeightPercentage(interaction.guildId, targetUser.id);
+        
+        const inventoryLines = [
+          ...lines,
+          "",
+          `📦 **Inventory Weight:** ${weight}/${MAX_INVENTORY_WEIGHT} (${weightPercent}%)`
+        ];
+
         await replyComponentsV2(
           interaction,
           `${targetUser.username}'s Inventory`,
-          lines.length > 0 ? lines : ["No inventory items yet."],
+          inventoryLines.length > 1 ? inventoryLines : ["No inventory items yet."],
           [],
           { ephemeral: true }
         );
         return;
+      }
+
+      if (interaction.commandName === "use-item") {
+        if (!interaction.inGuild()) {
+          await replyComponentsV2(
+            interaction,
+            "Use Item",
+            ["This command can only be used in a server."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        const itemId = interaction.options.getString("item", true);
+        const item = getInventoryItemById(interaction.guildId, itemId);
+
+        if (!item) {
+          await replyComponentsV2(
+            interaction,
+            "Use Item",
+            ["That item does not exist."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        const itemState = getUserInventoryItemState(interaction.guildId, interaction.user.id, itemId, false);
+        if (!itemState || itemState.quantity < 1) {
+          await replyComponentsV2(
+            interaction,
+            "Use Item",
+            ["You don't have that item in your inventory."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        if (isItemOnCooldown(interaction.user.id, itemId)) {
+          const remaining = Math.ceil(getItemCooldownRemaining(interaction.user.id, itemId) / 1000);
+          await replyComponentsV2(
+            interaction,
+            "Use Item",
+            [`You must wait ${remaining} more seconds before using this item again.`],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        const result = useInventoryItem(interaction.guildId, interaction.user.id, itemId, 1);
+        if (!result.success) {
+          await replyComponentsV2(
+            interaction,
+            "Use Item",
+            [result.reason || "Could not use item."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        await replyComponentsV2(
+          interaction,
+          "Item Used",
+          [
+            `${SUCCESSFUL_EMOJI_RAW} Used **${item.name}**`,
+            `Remaining: **${itemState.quantity - 1}**`
+          ],
+          [],
+          { ephemeral: true }
+        );
+        return;
+      }
+
+      if (interaction.commandName === "gift-item") {
+        if (!interaction.inGuild()) {
+          await replyComponentsV2(
+            interaction,
+            "Gift Item",
+            ["This command can only be used in a server."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        const itemId = interaction.options.getString("item", true);
+        const recipient = interaction.options.getUser("recipient", true);
+        const quantity = Math.max(1, interaction.options.getInteger("quantity", false) || 1);
+
+        if (recipient.bot) {
+          await replyComponentsV2(
+            interaction,
+            "Gift Item",
+            ["You cannot gift items to bots."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        const item = getInventoryItemById(interaction.guildId, itemId);
+        if (!item) {
+          await replyComponentsV2(
+            interaction,
+            "Gift Item",
+            ["That item does not exist."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        const haveState = getUserInventoryItemState(interaction.guildId, interaction.user.id, itemId, false);
+        if (!haveState || haveState.quantity < quantity) {
+          await replyComponentsV2(
+            interaction,
+            "Gift Item",
+            [
+              `You don't have enough of that item.`,
+              `Need: **${quantity}** | Have: **${haveState?.quantity || 0}**`
+            ],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        const result = giftInventoryItem(interaction.guildId, interaction.user.id, recipient.id, itemId, quantity);
+        if (!result.success) {
+          await replyComponentsV2(
+            interaction,
+            "Gift Item",
+            [result.reason || "Could not gift item."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        await replyComponentsV2(
+          interaction,
+          "Item Gifted",
+          [
+            `${SUCCESSFUL_EMOJI_RAW} Gifted **${quantity}x ${item.name}** to **${recipient.username}**`
+          ],
+          [],
+          { ephemeral: true }
+        );
+        return;
+      }
+
+      if (interaction.commandName === "trade") {
+        if (!interaction.inGuild()) {
+          await replyComponentsV2(
+            interaction,
+            "Trade",
+            ["This command can only be used in a server."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        const subcommand = interaction.options.getSubcommand();
+
+        if (subcommand === "propose") {
+          const targetUser = interaction.options.getUser("user", true);
+          if (targetUser.bot) {
+            await replyComponentsV2(
+              interaction,
+              "Trade",
+              ["You cannot trade with bots."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          if (targetUser.id === interaction.user.id) {
+            await replyComponentsV2(
+              interaction,
+              "Trade",
+              ["You cannot trade with yourself."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          const offeredStr = interaction.options.getString("offer", true);
+          const requestedStr = interaction.options.getString("request", true);
+          const offeredIds = offeredStr.split(",").map(s => s.trim()).filter(s => s.length > 0);
+          const requestedIds = requestedStr.split(",").map(s => s.trim()).filter(s => s.length > 0);
+
+          if (offeredIds.length === 0 || requestedIds.length === 0) {
+            await replyComponentsV2(
+              interaction,
+              "Trade",
+              ["Both offer and request lists must have at least one item."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          // Validate offered items exist
+          for (const itemId of offeredIds) {
+            const item = getInventoryItemById(interaction.guildId, itemId);
+            if (!item) {
+              await replyComponentsV2(
+                interaction,
+                "Trade",
+                [`You don't have item \`${itemId}\`.`],
+                [],
+                { ephemeral: true }
+              );
+              return;
+            }
+
+            const state = getUserInventoryItemState(interaction.guildId, interaction.user.id, itemId, false);
+            if (!state || state.quantity < 1) {
+              await replyComponentsV2(
+                interaction,
+                "Trade",
+                [`You don't have **${item.name}** in your inventory`],
+                [],
+                { ephemeral: true }
+              );
+              return;
+            }
+          }
+
+          const proposal = createTradeProposal(
+            interaction.guildId,
+            interaction.user.id,
+            targetUser.id,
+            offeredIds,
+            requestedIds
+          );
+
+          await replyComponentsV2(
+            interaction,
+            "Trade Proposed",
+            [
+              `${SUCCESSFUL_EMOJI_RAW} Trade proposal created: \`${proposal.id}\``,
+              `Offered: **${offeredIds.length}** item(s)`,
+              `Requested: **${requestedIds.length}** item(s)`,
+              `Target: **${targetUser.username}**`,
+              `Expires in 1 hour`
+            ],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        if (subcommand === "list") {
+          const pending = getPendingTradesForUser(interaction.guildId, interaction.user.id);
+          if (pending.length === 0) {
+            await replyComponentsV2(
+              interaction,
+              "Trade Proposals",
+              ["No pending trade proposals for you."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          const lines = pending.map(p => {
+            const initiator = `<@${p.initiatorId}>`;
+            return `**${p.id}** from ${initiator}: Offering **${p.offeredItems.length}** item(s) for **${p.requestedItems.length}** item(s)`;
+          });
+
+          await replyComponentsV2(
+            interaction,
+            "Your Trade Proposals",
+            lines,
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        if (subcommand === "accept") {
+          const tradeId = interaction.options.getString("trade_id", true);
+          const proposal = getTradeProposal(tradeId);
+
+          if (!proposal) {
+            await replyComponentsV2(
+              interaction,
+              "Trade",
+              ["That trade proposal does not exist or has expired."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          if (proposal.targetId !== interaction.user.id) {
+            await replyComponentsV2(
+              interaction,
+              "Trade",
+              ["You are not the target of this trade proposal."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          const result = acceptTradeProposal(tradeId);
+          if (!result.success) {
+            await replyComponentsV2(
+              interaction,
+              "Trade",
+              [result.reason || "Could not accept trade."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          await replyComponentsV2(
+            interaction,
+            "Trade Accepted",
+            [
+              `${SUCCESSFUL_EMOJI_RAW} Trade completed!`,
+              `You traded **${proposal.requestedItems.length}** item(s) for **${proposal.offeredItems.length}** item(s)`
+            ],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
       }
 
       if (interaction.commandName === "say") {
@@ -6635,6 +7407,9 @@ client.on("interactionCreate", async (interaction) => {
           const wallet = normalizeRoleItemWallet(interaction.options.getString("wallet", true));
           const price = interaction.options.getInteger("price", true);
           const addToShop = interaction.options.getBoolean("add_to_shop", false) === true;
+          const rarity = interaction.options.getString("rarity", false) || "common";
+          const category = interaction.options.getString("category", false) || "other";
+          const weight = Math.max(0, interaction.options.getInteger("weight", false) || 0);
           let description = interaction.options.getString("description", true).trim();
 
           if (isTemporary && !description.toLowerCase().includes("(temporary item)")) {
@@ -6648,6 +7423,9 @@ client.on("interactionCreate", async (interaction) => {
             description,
             wallet,
             price,
+            rarity,
+            category,
+            weight,
             isTemporary,
             inShop: addToShop,
             createdByUserId: interaction.user.id,
@@ -6662,7 +7440,8 @@ client.on("interactionCreate", async (interaction) => {
             "Inventory Item Created",
             [
               `${SUCCESSFUL_EMOJI_RAW} Created **${item.name}** (\`${item.id}\`).`,
-              `Wallet: **${getRoleItemWalletLabel(item.wallet)}**`,
+              `Rarity: **${getItemRarityDisplay(item)}** | Category: **${getItemCategoryName(item)}**`,
+              `Weight: **${weight}** | Wallet: **${getRoleItemWalletLabel(item.wallet)}**`,
               `Price: **${formatPointsWithEmoji(item.price)}**`,
               `Shop: **${item.inShop ? "Listed" : "Not listed"}**`,
               `Type: **${item.isTemporary ? "Temporary" : "Permanent"}**`
