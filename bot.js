@@ -49,6 +49,7 @@ const SELECTIONS_PATH = path.join(DATA_DIR, "selections.json");
 const WEBHOOKS_PATH = path.join(DATA_DIR, "webhooks.json");
 const LOGS_CHANNEL_PATH = path.join(DATA_DIR, "logsChannel.json");
 const ADMIN_ROLES_PATH = path.join(DATA_DIR, "adminRoles.json");
+const DUNGEON_MASTER_ROLES_PATH = path.join(DATA_DIR, "dungeonMasterRoles.json");
 const SAY_CHANNELS_PATH = path.join(DATA_DIR, "sayChannels.json");
 const ROLEPLAY_ENABLED_PATH = path.join(DATA_DIR, "roleplayEnabled.json");
 const MESSAGE_LOGS_PATH = path.join(DATA_DIR, "messageLogs.json");
@@ -58,6 +59,8 @@ const CHARACTER_POINTS_PATH = path.join(DATA_DIR, "characterPoints.json");
 const USER_SLOTS_PATH = path.join(DATA_DIR, "userSlots.json");
 const CHARACTER_UPGRADES_PATH = path.join(DATA_DIR, "characterUpgrades.json");
 const SHOP_ROLE_ITEMS_PATH = path.join(DATA_DIR, "shopRoleItems.json");
+const INVENTORY_ITEMS_PATH = path.join(DATA_DIR, "inventoryItems.json");
+const USER_INVENTORY_PATH = path.join(DATA_DIR, "userInventory.json");
 const ECONOMY_DB_PATH = path.join(DATA_DIR, "economy.sqlite");
 
 const MESSAGE_POINTS_MIN = 0.25;
@@ -320,6 +323,7 @@ let selections = readJson(SELECTIONS_PATH, {});
 let webhooks = readJson(WEBHOOKS_PATH, {});
 let logsChannelId = readJson(LOGS_CHANNEL_PATH, null);
 let adminRoles = readJson(ADMIN_ROLES_PATH, {});
+let dungeonMasterRoles = readJson(DUNGEON_MASTER_ROLES_PATH, {});
 let sayChannels = readJson(SAY_CHANNELS_PATH, {});
 let roleplayEnabledByGuild = readJson(ROLEPLAY_ENABLED_PATH, {});
 let messageLogs = readJson(MESSAGE_LOGS_PATH, []);
@@ -329,14 +333,28 @@ let characterPoints = readJson(CHARACTER_POINTS_PATH, {});
 let userSlots = readJson(USER_SLOTS_PATH, {});
 let characterUpgrades = readJson(CHARACTER_UPGRADES_PATH, {});
 let shopRoleItems = readJson(SHOP_ROLE_ITEMS_PATH, []);
+let inventoryItems = readJson(INVENTORY_ITEMS_PATH, []);
+let userInventory = readJson(USER_INVENTORY_PATH, {});
 let economyDb = null;
 
 if (!Array.isArray(shopRoleItems)) {
   shopRoleItems = [];
 }
 
+if (!Array.isArray(inventoryItems)) {
+  inventoryItems = [];
+}
+
+if (!userInventory || typeof userInventory !== "object" || Array.isArray(userInventory)) {
+  userInventory = {};
+}
+
 if (!adminRoles || typeof adminRoles !== "object" || Array.isArray(adminRoles)) {
   adminRoles = {};
+}
+
+if (!dungeonMasterRoles || typeof dungeonMasterRoles !== "object" || Array.isArray(dungeonMasterRoles)) {
+  dungeonMasterRoles = {};
 }
 
 if (!sayChannels || typeof sayChannels !== "object" || Array.isArray(sayChannels)) {
@@ -1010,6 +1028,10 @@ function saveAdminRoles() {
   writeJson(ADMIN_ROLES_PATH, adminRoles);
 }
 
+function saveDungeonMasterRoles() {
+  writeJson(DUNGEON_MASTER_ROLES_PATH, dungeonMasterRoles);
+}
+
 function saveSayChannels() {
   writeJson(SAY_CHANNELS_PATH, sayChannels);
 }
@@ -1044,6 +1066,14 @@ function saveCharacterUpgrades() {
 
 function saveShopRoleItems() {
   writeJson(SHOP_ROLE_ITEMS_PATH, shopRoleItems);
+}
+
+function saveInventoryItems() {
+  writeJson(INVENTORY_ITEMS_PATH, inventoryItems);
+}
+
+function saveUserInventory() {
+  writeJson(USER_INVENTORY_PATH, userInventory);
 }
 
 function parseChannelIdInput(rawValue) {
@@ -1141,6 +1171,43 @@ function removeAdminRoleId(guildId, roleId) {
   saveAdminRoles();
 }
 
+function getDungeonMasterRoleIds(guildId) {
+  if (!guildId) {
+    return [];
+  }
+
+  const key = getScopeId(guildId);
+  const value = dungeonMasterRoles[key];
+  return Array.isArray(value) ? value : [];
+}
+
+function addDungeonMasterRoleId(guildId, roleId) {
+  if (!guildId || !roleId) {
+    return;
+  }
+
+  const key = getScopeId(guildId);
+  const existing = new Set(getDungeonMasterRoleIds(guildId));
+  existing.add(roleId);
+  dungeonMasterRoles[key] = Array.from(existing);
+  saveDungeonMasterRoles();
+}
+
+function removeDungeonMasterRoleId(guildId, roleId) {
+  if (!guildId || !roleId) {
+    return;
+  }
+
+  const key = getScopeId(guildId);
+  const updated = getDungeonMasterRoleIds(guildId).filter((id) => id !== roleId);
+  if (updated.length > 0) {
+    dungeonMasterRoles[key] = updated;
+  } else {
+    delete dungeonMasterRoles[key];
+  }
+  saveDungeonMasterRoles();
+}
+
 function getSayAllowedChannelIds(guildId) {
   if (!guildId) {
     return [];
@@ -1225,6 +1292,10 @@ function hasAdminAccess(interaction) {
     return false;
   }
 
+  if (interaction.guild?.ownerId && interaction.guild.ownerId === interaction.user?.id) {
+    return true;
+  }
+
   if (interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
     return true;
   }
@@ -1241,6 +1312,37 @@ function hasAdminAccess(interaction) {
 
   for (const roleId of configuredRoleIds) {
     if (memberRoleCache.has(roleId)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function hasDungeonMasterAccess(interaction) {
+  if (!interaction?.inGuild?.() || !interaction.guildId) {
+    return false;
+  }
+
+  if (hasAdminAccess(interaction)) {
+    return true;
+  }
+
+  const memberRoleCache = interaction.member?.roles?.cache;
+  if (!memberRoleCache) {
+    return false;
+  }
+
+  const configuredRoleIds = new Set(getDungeonMasterRoleIds(interaction.guildId));
+  for (const roleId of configuredRoleIds) {
+    if (memberRoleCache.has(roleId)) {
+      return true;
+    }
+  }
+
+  for (const role of memberRoleCache.values()) {
+    const roleName = String(role?.name || "").toLowerCase().trim();
+    if (roleName.includes("dungeon master")) {
       return true;
     }
   }
@@ -1444,6 +1546,7 @@ function buildRoleShopAdminPanel(guildId, statusLine = null) {
 
 function buildSetupAdminPanel(guildId, statusLine = null) {
   const roleIds = getAdminRoleIds(guildId);
+  const dungeonMasterRoleIds = getDungeonMasterRoleIds(guildId);
   const logsChannel = getLogsChannelIdForGuild(guildId);
   const allowedSayChannels = getSayAllowedChannelIds(guildId);
   const roleplayEnabled = isRoleplayEnabledForGuild(guildId);
@@ -1499,6 +1602,37 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
         style: 2,
         label: "Remove Admin Role",
         custom_id: "setup:panel:remove-admin-role"
+      }
+    ]
+  });
+
+  components.push({ type: 14, divider: true, spacing: 1 });
+  components.push({ type: 10, content: "### Dungeon Master Roles" });
+  if (dungeonMasterRoleIds.length === 0) {
+    components.push({ type: 10, content: `${BULLET_EMOJI_RAW} No dungeon master roles configured.` });
+  } else {
+    components.push({ type: 10, content: `${BULLET_EMOJI_RAW} Configured: ${dungeonMasterRoleIds.length} role(s).` });
+    const rolePreview = dungeonMasterRoleIds.slice(0, maxAdminRolePreview).map((roleId) => `<@&${roleId}>`).join(", ");
+    components.push({
+      type: 10,
+      content: `${BULLET_EMOJI_RAW} Preview: ${rolePreview}${dungeonMasterRoleIds.length > maxAdminRolePreview ? `, and ${dungeonMasterRoleIds.length - maxAdminRolePreview} more` : ""}`
+    });
+  }
+
+  components.push({
+    type: 1,
+    components: [
+      {
+        type: 2,
+        style: 2,
+        label: "Add DM Role",
+        custom_id: "setup:panel:add-dm-role"
+      },
+      {
+        type: 2,
+        style: 2,
+        label: "Remove DM Role",
+        custom_id: "setup:panel:remove-dm-role"
       }
     ]
   });
@@ -1948,6 +2082,169 @@ function getUserSlotsKey(guildId, userId) {
   return `${getScopeId(guildId)}:${userId}`;
 }
 
+function getUserInventoryKey(guildId, userId) {
+  return `${getScopeId(guildId)}:${userId}`;
+}
+
+function generateInventoryItemId(name) {
+  const baseSlug = String(name || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+
+  const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  return `item-${baseSlug || "unnamed"}-${suffix}`;
+}
+
+function getInventoryItemsForGuild(guildId) {
+  if (!guildId) {
+    return [];
+  }
+
+  return inventoryItems.filter((item) => item && item.guildId === guildId);
+}
+
+function getInventoryItemById(guildId, itemId) {
+  if (!guildId || !itemId) {
+    return null;
+  }
+
+  return getInventoryItemsForGuild(guildId).find((item) => item.id === itemId) || null;
+}
+
+function getInventoryItemAutocompleteChoices(guildId, focusedText = "") {
+  const normalizedFocused = String(focusedText || "").toLowerCase().trim();
+
+  return getInventoryItemsForGuild(guildId)
+    .filter((item) => {
+      if (!normalizedFocused) {
+        return true;
+      }
+
+      const itemId = String(item.id || "").toLowerCase();
+      const itemName = String(item.name || "").toLowerCase();
+      return itemId.includes(normalizedFocused) || itemName.includes(normalizedFocused);
+    })
+    .slice(0, 25)
+    .map((item) => ({
+      name: `${item.name} (${item.id})`.slice(0, 100),
+      value: item.id
+    }));
+}
+
+function getUserInventoryRecord(guildId, userId, createIfMissing = false) {
+  const key = getUserInventoryKey(guildId, userId);
+  const existing = userInventory[key];
+
+  if (existing && typeof existing === "object" && !Array.isArray(existing)) {
+    return existing;
+  }
+
+  if (!createIfMissing) {
+    return {};
+  }
+
+  userInventory[key] = {};
+  return userInventory[key];
+}
+
+function getUserInventoryItemState(guildId, userId, itemId, createIfMissing = false) {
+  const record = getUserInventoryRecord(guildId, userId, createIfMissing);
+  const existing = record[itemId];
+
+  if (existing && typeof existing === "object" && !Array.isArray(existing)) {
+    if (!existing.holders || typeof existing.holders !== "object" || Array.isArray(existing.holders)) {
+      existing.holders = {};
+    }
+    const numericQuantity = Number(existing.quantity);
+    existing.quantity = Number.isFinite(numericQuantity) && numericQuantity > 0 ? Math.floor(numericQuantity) : 0;
+    return existing;
+  }
+
+  if (!createIfMissing) {
+    return null;
+  }
+
+  record[itemId] = {
+    quantity: 0,
+    holders: {}
+  };
+
+  return record[itemId];
+}
+
+function getHeldInventoryQuantity(itemState) {
+  if (!itemState?.holders || typeof itemState.holders !== "object") {
+    return 0;
+  }
+
+  let heldTotal = 0;
+  for (const value of Object.values(itemState.holders)) {
+    const numericValue = Number(value);
+    if (Number.isFinite(numericValue) && numericValue > 0) {
+      heldTotal += Math.floor(numericValue);
+    }
+  }
+
+  return heldTotal;
+}
+
+function addInventoryItemToUser(guildId, userId, itemId, quantity = 1, holderCharacterId = null) {
+  if (!guildId || !userId || !itemId) {
+    return false;
+  }
+
+  const safeQuantity = Number.isFinite(quantity) ? Math.floor(quantity) : 0;
+  if (safeQuantity <= 0) {
+    return false;
+  }
+
+  const itemState = getUserInventoryItemState(guildId, userId, itemId, true);
+  itemState.quantity += safeQuantity;
+
+  if (holderCharacterId) {
+    const currentHeld = Number(itemState.holders[holderCharacterId] || 0);
+    itemState.holders[holderCharacterId] = Math.max(0, currentHeld) + safeQuantity;
+  }
+
+  saveUserInventory();
+  return true;
+}
+
+function removeInventoryHoldersForCharacter(guildId, characterId, replacementCharacterId = null) {
+  if (!guildId || !characterId) {
+    return;
+  }
+
+  const scopePrefix = `${getScopeId(guildId)}:`;
+  for (const [key, record] of Object.entries(userInventory)) {
+    if (!key.startsWith(scopePrefix) || !record || typeof record !== "object" || Array.isArray(record)) {
+      continue;
+    }
+
+    for (const itemState of Object.values(record)) {
+      if (!itemState || typeof itemState !== "object" || !itemState.holders || typeof itemState.holders !== "object") {
+        continue;
+      }
+
+      const heldQuantity = Number(itemState.holders[characterId] || 0);
+      if (!Number.isFinite(heldQuantity) || heldQuantity <= 0) {
+        continue;
+      }
+
+      if (replacementCharacterId) {
+        const existingReplacement = Number(itemState.holders[replacementCharacterId] || 0);
+        itemState.holders[replacementCharacterId] = Math.max(0, existingReplacement) + Math.floor(heldQuantity);
+      }
+
+      delete itemState.holders[characterId];
+    }
+  }
+
+  saveUserInventory();
+}
+
 function getLegacyEntityKeys(guildId, entityId) {
   const keys = [];
   const scopedKey = `${getScopeId(guildId)}:${entityId}`;
@@ -2341,6 +2638,8 @@ function renameCharacterIdInGuild(guildId, oldCharacterId, newCharacterId) {
     }
   }
 
+  removeInventoryHoldersForCharacter(guildId, oldCharacterId, newCharacterId);
+
   character.id = newCharacterId;
 
   writeJson(CHARACTERS_PATH, characters);
@@ -2419,7 +2718,71 @@ function getShopItems(guildId, userId) {
     });
   }
 
+  const guildInventoryItems = getInventoryItemsForGuild(guildId)
+    .filter((item) => item.inShop === true)
+    .sort((first, second) => String(first.name || "").localeCompare(String(second.name || "")));
+
+  for (const inventoryItem of guildInventoryItems) {
+    const walletType = normalizeRoleItemWallet(inventoryItem.wallet);
+    const temporarySuffix = inventoryItem.isTemporary ? " (Temporary)" : "";
+    items.push({
+      id: `inv:${inventoryItem.id}`,
+      name: `${inventoryItem.name}${temporarySuffix}`,
+      description: inventoryItem.description,
+      wallet: getRoleItemWalletLabel(walletType),
+      cost: inventoryItem.price,
+      emoji: SHOP_ITEM_EMOJI_RAW
+    });
+  }
+
   return items;
+}
+
+function getInventorySummaryLines(guildId, userId) {
+  const record = getUserInventoryRecord(guildId, userId, false);
+  const entries = [];
+
+  for (const [itemId, state] of Object.entries(record)) {
+    if (!state || typeof state !== "object") {
+      continue;
+    }
+
+    const totalQuantity = Number(state.quantity || 0);
+    if (!Number.isFinite(totalQuantity) || totalQuantity <= 0) {
+      continue;
+    }
+
+    const item = getInventoryItemById(guildId, itemId);
+    const itemName = item?.name || `Unknown Item (${itemId})`;
+    const heldParts = [];
+
+    for (const [characterId, rawQty] of Object.entries(state.holders || {})) {
+      const heldQty = Number(rawQty);
+      if (!Number.isFinite(heldQty) || heldQty <= 0) {
+        continue;
+      }
+
+      const character = getCharacterById(characterId, guildId);
+      const characterName = character?.name || characterId;
+      heldParts.push(`${characterName} x${Math.floor(heldQty)}`);
+    }
+
+    const heldTotal = getHeldInventoryQuantity(state);
+    const safeTotal = Math.floor(totalQuantity);
+    const unheld = Math.max(0, safeTotal - heldTotal);
+    const holderSummary = heldParts.length > 0
+      ? heldParts.join(", ")
+      : "none";
+
+    entries.push({
+      itemName,
+      line: `${BULLET_EMOJI_RAW} **${itemName}** x${safeTotal}\nHeld by: ${holderSummary}${unheld > 0 ? ` | Unheld: ${unheld}` : ""}`
+    });
+  }
+
+  return entries
+    .sort((first, second) => first.itemName.localeCompare(second.itemName))
+    .map((entry) => entry.line);
 }
 
 function getCurrencyEmojiForButton() {
@@ -2619,6 +2982,7 @@ function buildHelpView(guildId, userId, isAdmin, page = 0) {
           heading: "Economy",
           lines: [
             `${BULLET_EMOJI_RAW} \`/wallet\` — View your wallets`,
+            `${BULLET_EMOJI_RAW} \`/inventory\` — View your inventory and item holders`,
             `${BULLET_EMOJI_RAW} \`/points\` — View your points`,
             `${BULLET_EMOJI_RAW} \`/leaderboard\` — View rankings`,
             `${BULLET_EMOJI_RAW} \`/shop\` — Buy slots and upgrades`
@@ -2667,6 +3031,9 @@ function buildHelpView(guildId, userId, isAdmin, page = 0) {
             `${BULLET_EMOJI_RAW} \`/admin user edit\` — Manage user profile + characters`,
             `${BULLET_EMOJI_RAW} \`/setup panel\` — Manage admin roles, logs channel, and /say channels`,
             `${BULLET_EMOJI_RAW} \`/setup add-points\` — Add user/character wallet points`,
+            `${BULLET_EMOJI_RAW} \`/setup create-item\` — Create inventory items`,
+            `${BULLET_EMOJI_RAW} \`/setup give-item\` — Give inventory items to users`,
+            `${BULLET_EMOJI_RAW} \`/setup set-item-shop\` — Add/remove inventory items from /shop`,
             `${BULLET_EMOJI_RAW} \`/setup add-role-shop-item\` — Add role item to shop`,
             `${BULLET_EMOJI_RAW} \`/bot-say\` — Send a message as the bot`
           ]
@@ -2846,6 +3213,7 @@ function deleteCharacterFromGuild(guildId, characterId) {
   saveCharacterUpgrades();
   clearCharacterSelectionsInGuild(guildId, characterId);
   saveSelections();
+  removeInventoryHoldersForCharacter(guildId, characterId);
 
   for (const channelId of Object.keys(webhooks)) {
     if (webhooks[channelId]?.[characterId]) {
@@ -3367,6 +3735,115 @@ async function registerCommands() {
               { name: "Character Wallet", value: "character" }
             )
         )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("create-item")
+        .setDescription("Create an inventory item")
+        .addStringOption((option) =>
+          option
+            .setName("name")
+            .setDescription("Item name")
+            .setRequired(true)
+            .setMaxLength(80)
+        )
+        .addStringOption((option) =>
+          option
+            .setName("description")
+            .setDescription("Item description")
+            .setRequired(true)
+            .setMaxLength(300)
+        )
+        .addStringOption((option) =>
+          option
+            .setName("wallet")
+            .setDescription("Wallet charged when bought from shop")
+            .setRequired(true)
+            .addChoices(
+              { name: "User Wallet", value: "user" },
+              { name: "Character Wallet", value: "character" }
+            )
+        )
+        .addIntegerOption((option) =>
+          option
+            .setName("price")
+            .setDescription("Shop price")
+            .setRequired(true)
+            .setMinValue(0)
+        )
+        .addBooleanOption((option) =>
+          option
+            .setName("temporary")
+            .setDescription("Create as a temporary item (for dungeon masters)")
+            .setRequired(false)
+        )
+        .addBooleanOption((option) =>
+          option
+            .setName("add_to_shop")
+            .setDescription("Immediately make this item buyable in /shop")
+            .setRequired(false)
+        )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("give-item")
+        .setDescription("Give an inventory item to a user")
+        .addStringOption((option) =>
+          option
+            .setName("item")
+            .setDescription("Item to give")
+            .setRequired(true)
+            .setAutocomplete(true)
+        )
+        .addUserOption((option) =>
+          option
+            .setName("user")
+            .setDescription("Target user")
+            .setRequired(true)
+        )
+        .addIntegerOption((option) =>
+          option
+            .setName("quantity")
+            .setDescription("How many to give")
+            .setRequired(false)
+            .setMinValue(1)
+            .setMaxValue(999)
+        )
+        .addStringOption((option) =>
+          option
+            .setName("character")
+            .setDescription("Optional character holding the item")
+            .setRequired(false)
+            .setAutocomplete(true)
+        )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("set-item-shop")
+        .setDescription("Add or remove an inventory item from /shop")
+        .addStringOption((option) =>
+          option
+            .setName("item")
+            .setDescription("Item to update")
+            .setRequired(true)
+            .setAutocomplete(true)
+        )
+        .addBooleanOption((option) =>
+          option
+            .setName("in_shop")
+            .setDescription("Whether this item should be purchasable")
+            .setRequired(true)
+        )
+    );
+
+  const inventoryCommand = new SlashCommandBuilder()
+    .setName("inventory")
+    .setDescription("View inventory items and holders")
+    .addUserOption((option) =>
+      option
+        .setName("user")
+        .setDescription("User to view inventory for (admin only for others)")
+        .setRequired(false)
     );
 
   const botSayCommand = new SlashCommandBuilder()
@@ -3478,6 +3955,7 @@ async function registerCommands() {
     premiumCommand.toJSON(),
     shopCommand.toJSON(),
     walletCommand.toJSON(),
+    inventoryCommand.toJSON(),
     lookupCommand.toJSON(),
     leaderboardCommand.toJSON(),
     pointsCommand.toJSON()
@@ -4015,6 +4493,21 @@ client.on("interactionCreate", async (interaction) => {
         if (focusedValue.name === "character") {
           const choices = getCharacterAutocompleteChoices(interaction.guildId, focusedValue.value);
           await interaction.respond(choices);
+        }
+      }
+
+      if (interaction.commandName === "setup" && (subcommand === "give-item" || subcommand === "set-item-shop")) {
+        const focusedValue = interaction.options.getFocused(true);
+        if (focusedValue.name === "item") {
+          const choices = getInventoryItemAutocompleteChoices(interaction.guildId, focusedValue.value);
+          await interaction.respond(choices);
+          return;
+        }
+
+        if (subcommand === "give-item" && focusedValue.name === "character") {
+          const choices = getCharacterAutocompleteChoices(interaction.guildId, focusedValue.value);
+          await interaction.respond(choices);
+          return;
         }
       }
 
@@ -5146,6 +5639,41 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
+      if (interaction.commandName === "inventory") {
+        if (!interaction.inGuild()) {
+          await replyComponentsV2(
+            interaction,
+            "Inventory",
+            ["This command can only be used in a server."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        const targetUser = interaction.options.getUser("user", false) || interaction.user;
+        if (targetUser.id !== interaction.user.id && !hasAdminAccess(interaction)) {
+          await replyComponentsV2(
+            interaction,
+            "Inventory",
+            ["You do not have permission to view another user's inventory."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        const lines = getInventorySummaryLines(interaction.guildId, targetUser.id);
+        await replyComponentsV2(
+          interaction,
+          `${targetUser.username}'s Inventory`,
+          lines.length > 0 ? lines : ["No inventory items yet."],
+          [],
+          { ephemeral: true }
+        );
+        return;
+      }
+
       if (interaction.commandName === "say") {
         // Defer reply immediately since webhook operations can take time
         await interaction.deferReply({ ephemeral: true, flags: 32768 });
@@ -5935,7 +6463,11 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       if (interaction.commandName === "setup") {
-        if (!hasAdminAccess(interaction)) {
+        const subcommand = interaction.options.getSubcommand();
+        const wantsTemporaryItem = subcommand === "create-item"
+          && interaction.options.getBoolean("temporary", false) === true;
+
+        if (!hasAdminAccess(interaction) && !(wantsTemporaryItem && hasDungeonMasterAccess(interaction))) {
           await replyComponentsV2(
             interaction,
             "Setup",
@@ -5945,8 +6477,6 @@ client.on("interactionCreate", async (interaction) => {
           );
           return;
         }
-
-        const subcommand = interaction.options.getSubcommand();
 
         if (subcommand === "panel") {
           try {
@@ -6074,6 +6604,198 @@ client.on("interactionCreate", async (interaction) => {
             components: buildRoleShopAdminPanel(interaction.guildId),
             ephemeral: true
           });
+          return;
+        }
+
+        if (subcommand === "create-item") {
+          const isTemporary = interaction.options.getBoolean("temporary", false) === true;
+          if (!hasAdminAccess(interaction) && !isTemporary) {
+            await replyComponentsV2(
+              interaction,
+              "Create Item",
+              ["Only server owners and bot managers can create permanent items."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          if (isTemporary && !hasDungeonMasterAccess(interaction)) {
+            await replyComponentsV2(
+              interaction,
+              "Create Item",
+              ["Only dungeon masters, bot managers, or the server owner can create temporary items."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          const name = interaction.options.getString("name", true).trim();
+          const wallet = normalizeRoleItemWallet(interaction.options.getString("wallet", true));
+          const price = interaction.options.getInteger("price", true);
+          const addToShop = interaction.options.getBoolean("add_to_shop", false) === true;
+          let description = interaction.options.getString("description", true).trim();
+
+          if (isTemporary && !description.toLowerCase().includes("(temporary item)")) {
+            description = `${description} (temporary item)`;
+          }
+
+          const item = {
+            id: generateInventoryItemId(name),
+            guildId: interaction.guildId,
+            name,
+            description,
+            wallet,
+            price,
+            isTemporary,
+            inShop: addToShop,
+            createdByUserId: interaction.user.id,
+            createdAt: new Date().toISOString()
+          };
+
+          inventoryItems.push(item);
+          saveInventoryItems();
+
+          await replyComponentsV2(
+            interaction,
+            "Inventory Item Created",
+            [
+              `${SUCCESSFUL_EMOJI_RAW} Created **${item.name}** (\`${item.id}\`).`,
+              `Wallet: **${getRoleItemWalletLabel(item.wallet)}**`,
+              `Price: **${formatPointsWithEmoji(item.price)}**`,
+              `Shop: **${item.inShop ? "Listed" : "Not listed"}**`,
+              `Type: **${item.isTemporary ? "Temporary" : "Permanent"}**`
+            ],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        if (subcommand === "give-item") {
+          if (!hasAdminAccess(interaction)) {
+            await replyComponentsV2(
+              interaction,
+              "Give Item",
+              ["Only server owners and bot managers can give inventory items."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          const itemId = interaction.options.getString("item", true);
+          const targetUser = interaction.options.getUser("user", true);
+          const quantity = interaction.options.getInteger("quantity", false) || 1;
+          const holderCharacterId = interaction.options.getString("character", false);
+          const item = getInventoryItemById(interaction.guildId, itemId);
+
+          if (!item) {
+            await replyComponentsV2(
+              interaction,
+              "Give Item",
+              ["That inventory item does not exist in this server."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          if (targetUser.bot) {
+            await replyComponentsV2(
+              interaction,
+              "Give Item",
+              ["You cannot give inventory items to bot accounts."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          if (holderCharacterId) {
+            const holderCharacter = getCharacterById(holderCharacterId, interaction.guildId);
+            if (!holderCharacter) {
+              await replyComponentsV2(
+                interaction,
+                "Give Item",
+                ["The specified holder character does not exist."],
+                [],
+                { ephemeral: true }
+              );
+              return;
+            }
+
+            if (getAssignedUserId(interaction.guildId, holderCharacterId) !== targetUser.id) {
+              await replyComponentsV2(
+                interaction,
+                "Give Item",
+                ["The specified character is not assigned to that user."],
+                [],
+                { ephemeral: true }
+              );
+              return;
+            }
+          }
+
+          addInventoryItemToUser(interaction.guildId, targetUser.id, item.id, quantity, holderCharacterId || null);
+
+          const holderLine = holderCharacterId
+            ? `Assigned holder: **${getCharacterById(holderCharacterId, interaction.guildId)?.name || holderCharacterId}**`
+            : "Assigned holder: **none**";
+
+          await replyComponentsV2(
+            interaction,
+            "Item Granted",
+            [
+              `${SUCCESSFUL_EMOJI_RAW} Gave **${item.name}** x${quantity} to **${targetUser.tag}**.`,
+              holderLine
+            ],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        if (subcommand === "set-item-shop") {
+          if (!hasAdminAccess(interaction)) {
+            await replyComponentsV2(
+              interaction,
+              "Set Item Shop",
+              ["Only server owners and bot managers can update shop listings."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          const itemId = interaction.options.getString("item", true);
+          const inShop = interaction.options.getBoolean("in_shop", true);
+          const item = getInventoryItemById(interaction.guildId, itemId);
+
+          if (!item) {
+            await replyComponentsV2(
+              interaction,
+              "Set Item Shop",
+              ["That inventory item does not exist in this server."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          item.inShop = inShop;
+          saveInventoryItems();
+
+          await replyComponentsV2(
+            interaction,
+            "Shop Listing Updated",
+            [
+              `${SUCCESSFUL_EMOJI_RAW} **${item.name}** is now ${inShop ? "listed in" : "removed from"} /shop.`
+            ],
+            [],
+            { ephemeral: true }
+          );
           return;
         }
       }
@@ -6664,6 +7386,43 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
+        if (action.startsWith("remove-dm-role-confirm:")) {
+          const roleId = action.slice("remove-dm-role-confirm:".length);
+          const role = roleId ? interaction.guild.roles.cache.get(roleId) : null;
+
+          if (!roleId || !getDungeonMasterRoleIds(interaction.guildId).includes(roleId)) {
+            await interaction.update({
+              flags: 32768,
+              components: buildSetupAdminPanel(
+                interaction.guildId,
+                `${UNSUCCESSFUL_EMOJI_RAW} That role is not currently configured as a dungeon master role.`
+              )
+            });
+            return;
+          }
+
+          removeDungeonMasterRoleId(interaction.guildId, roleId);
+          await interaction.update({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `<:success:1479234774861221898> Removed ${role ? `<@&${role.id}>` : `role \`${roleId}\``} from dungeon master roles.`
+            )
+          });
+          return;
+        }
+
+        if (action === "remove-dm-role-cancel") {
+          await interaction.update({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} Dungeon master role removal cancelled.`
+            )
+          });
+          return;
+        }
+
         if (action === "clear-logs-confirm") {
           setLogsChannelIdForGuild(interaction.guildId, null);
           await interaction.update({
@@ -6756,6 +7515,28 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
+        if (action === "add-dm-role") {
+          await interaction.reply({
+            content: "Choose a role from the dropdown.",
+            components: [
+              {
+                type: 1,
+                components: [
+                  {
+                    type: 6,
+                    custom_id: "setup:panel:add-dm-role:select",
+                    placeholder: "Select a role to add as dungeon master",
+                    min_values: 1,
+                    max_values: 1
+                  }
+                ]
+              }
+            ],
+            ephemeral: true
+          });
+          return;
+        }
+
         if (action === "remove-admin-role") {
           const adminRoleIds = getAdminRoleIds(interaction.guildId);
           if (adminRoleIds.length === 0) {
@@ -6801,6 +7582,62 @@ client.on("interactionCreate", async (interaction) => {
                     type: 3,
                     custom_id: "setup:panel:remove-admin-role:select",
                     placeholder: "Select an admin role to remove",
+                    min_values: 1,
+                    max_values: 1,
+                    options
+                  }
+                ]
+              }
+            ]
+          });
+          return;
+        }
+
+        if (action === "remove-dm-role") {
+          const dungeonRoleIds = getDungeonMasterRoleIds(interaction.guildId);
+          if (dungeonRoleIds.length === 0) {
+            await interaction.reply({
+              ephemeral: true,
+              components: buildSetupAdminPanel(
+                interaction.guildId,
+                `${UNSUCCESSFUL_EMOJI_RAW} No dungeon master roles configured.`
+              )
+            });
+            return;
+          }
+
+          const options = dungeonRoleIds
+            .map((roleId) => interaction.guild.roles.cache.get(roleId))
+            .filter(Boolean)
+            .slice(0, 25)
+            .map((role) => ({
+              label: role.name.slice(0, 100),
+              value: role.id,
+              description: `ID: ${role.id}`.slice(0, 100)
+            }));
+
+          if (options.length === 0) {
+            await interaction.reply({
+              ephemeral: true,
+              components: buildSetupAdminPanel(
+                interaction.guildId,
+                `${UNSUCCESSFUL_EMOJI_RAW} Configured dungeon master roles were not found in this server.`
+              )
+            });
+            return;
+          }
+
+          await interaction.reply({
+            content: "Choose a dungeon master role to remove.",
+            ephemeral: true,
+            components: [
+              {
+                type: 1,
+                components: [
+                  {
+                    type: 3,
+                    custom_id: "setup:panel:remove-dm-role:select",
+                    placeholder: "Select a dungeon master role to remove",
                     min_values: 1,
                     max_values: 1,
                     options
@@ -7062,6 +7899,41 @@ client.on("interactionCreate", async (interaction) => {
               }
             }
           }
+        } else if (itemId.startsWith("inv:")) {
+          const inventoryItemId = itemId.slice("inv:".length);
+          const inventoryItem = getInventoryItemById(interaction.guildId, inventoryItemId);
+
+          if (!inventoryItem || inventoryItem.inShop !== true) {
+            statusLine = `${UNSUCCESSFUL_EMOJI_RAW} This inventory item is not currently listed in /shop.`;
+          } else {
+            const walletType = normalizeRoleItemWallet(inventoryItem.wallet);
+
+            if (walletType === "character") {
+              const selectedCharacterId = getSelectedCharacterId(interaction.guildId, interaction.user.id);
+              if (!selectedCharacterId) {
+                statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Select a character first with /character pick.`;
+              } else if (getAssignedUserId(interaction.guildId, selectedCharacterId) !== interaction.user.id) {
+                statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Your selected character is not assigned to you.`;
+              } else {
+                const charPoints = getCharacterPoints(interaction.guildId, selectedCharacterId);
+                if (charPoints < inventoryItem.price) {
+                  statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Not enough character points: ${formatPointsWithEmoji(charPoints)}/${formatPointsWithEmoji(inventoryItem.price)}`;
+                } else if (spendCharacterPoints(interaction.guildId, selectedCharacterId, inventoryItem.price)) {
+                  addInventoryItemToUser(interaction.guildId, interaction.user.id, inventoryItem.id, 1, selectedCharacterId);
+                  const holderCharacter = getCharacterById(selectedCharacterId, interaction.guildId);
+                  statusLine = `${SUCCESSFUL_EMOJI_RAW} Bought **${inventoryItem.name}**. Holder: **${holderCharacter?.name || selectedCharacterId}**.`;
+                }
+              }
+            } else {
+              const currentPoints = getUserPoints(interaction.guildId, interaction.user.id);
+              if (currentPoints < inventoryItem.price) {
+                statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Not enough user points: ${formatPointsWithEmoji(currentPoints)}/${formatPointsWithEmoji(inventoryItem.price)}`;
+              } else if (spendPoints(interaction.guildId, interaction.user.id, inventoryItem.price)) {
+                addInventoryItemToUser(interaction.guildId, interaction.user.id, inventoryItem.id, 1, null);
+                statusLine = `${SUCCESSFUL_EMOJI_RAW} Bought **${inventoryItem.name}** and added it to your inventory.`;
+              }
+            }
+          }
         } else if (itemId.startsWith("upgrade:")) {
           const upgradeId = itemId.slice("upgrade:".length);
           const upgrade = CHARACTER_UPGRADE_DEFINITIONS[upgradeId];
@@ -7185,6 +8057,7 @@ client.on("interactionCreate", async (interaction) => {
           { name: "/user profile [user]", desc: "View user profile" },
           { name: "/user edit", desc: "Edit your profile" },
           { name: "/wallet", desc: "View combined user + character wallet" },
+          { name: "/inventory", desc: "View your inventory items and holders" },
           { name: "/shop", desc: "Buy upgrades and other shop items" },
           { name: "/premium", desc: "Get premium purchase link + steps" },
           { name: "/tutorial", desc: "Step-by-step guide for using the bot" },
@@ -7202,6 +8075,9 @@ client.on("interactionCreate", async (interaction) => {
           { name: "/admin user edit [user]", desc: "Manage user profile + character actions" },
           { name: "/setup panel", desc: "Manage admin roles, logs channel, and /say channels" },
           { name: "/setup add-points ...", desc: "Add user/character wallet points" },
+          { name: "/setup create-item ...", desc: "Create permanent or temporary inventory items" },
+          { name: "/setup give-item ...", desc: "Give inventory items to a user" },
+          { name: "/setup set-item-shop ...", desc: "Add/remove inventory items from /shop" },
           { name: "/setup add-role-shop-item", desc: "Open role shop item manager" },
           { name: "/character clear-webhooks", desc: "Clear webhook cache" },
           { name: "/bot-say [message] [channel]", desc: "Send message as bot" }
@@ -7394,6 +8270,123 @@ client.on("interactionCreate", async (interaction) => {
                   style: 2,
                   label: "Cancel",
                   custom_id: "setup:panel:remove-admin-role-cancel"
+                }
+              ]
+            }
+          ]
+        ),
+        ephemeral: true
+      });
+      return;
+    }
+
+    if (
+      interaction.customId === "setup:panel:add-dm-role:select" &&
+      Array.isArray(interaction.values)
+    ) {
+      if (!interaction.inGuild() || !hasAdminAccess(interaction)) {
+        await acknowledgeInteractionSilently(interaction);
+        return;
+      }
+
+      const roleId = interaction.values?.[0];
+      const role = roleId ? interaction.guild.roles.cache.get(roleId) : null;
+
+      if (!role || role.id === interaction.guildId) {
+        await interaction.reply({
+          flags: 32768,
+          components: buildSetupAdminPanel(
+            interaction.guildId,
+            `${UNSUCCESSFUL_EMOJI_RAW} Invalid role selection.`
+          ),
+          ephemeral: true
+        });
+        return;
+      }
+
+      if (getDungeonMasterRoleIds(interaction.guildId).includes(role.id)) {
+        await interaction.reply({
+          flags: 32768,
+          components: buildSetupAdminPanel(
+            interaction.guildId,
+            `${UNSUCCESSFUL_EMOJI_RAW} <@&${role.id}> is already a dungeon master role.`
+          ),
+          ephemeral: true
+        });
+        return;
+      }
+
+      addDungeonMasterRoleId(interaction.guildId, role.id);
+      await interaction.reply({
+        flags: 32768,
+        components: buildSetupAdminPanel(
+          interaction.guildId,
+          `<:success:1479234774861221898> Added <@&${role.id}> as a dungeon master role.`
+        ),
+        ephemeral: true
+      });
+      return;
+    }
+
+    if (
+      interaction.customId === "setup:panel:remove-dm-role:select" &&
+      Array.isArray(interaction.values)
+    ) {
+      if (!interaction.inGuild() || !hasAdminAccess(interaction)) {
+        await acknowledgeInteractionSilently(interaction);
+        return;
+      }
+
+      const roleId = interaction.values?.[0];
+      const role = roleId ? interaction.guild.roles.cache.get(roleId) : null;
+
+      if (!roleId) {
+        await interaction.reply({
+          flags: 32768,
+          components: buildSetupAdminPanel(
+            interaction.guildId,
+            `${UNSUCCESSFUL_EMOJI_RAW} Invalid role selection.`
+          ),
+          ephemeral: true
+        });
+        return;
+      }
+
+      if (!getDungeonMasterRoleIds(interaction.guildId).includes(roleId)) {
+        await interaction.reply({
+          flags: 32768,
+          components: buildSetupAdminPanel(
+            interaction.guildId,
+            `${UNSUCCESSFUL_EMOJI_RAW} That role is not currently configured as a dungeon master role.`
+          ),
+          ephemeral: true
+        });
+        return;
+      }
+
+      await interaction.reply({
+        flags: 32768,
+        components: buildComponentsBox(
+          "Remove Dungeon Master Role",
+          [
+            `Are you sure you want to remove ${role ? `<@&${role.id}>` : `role \`${roleId}\``} from dungeon master roles?`,
+            "This role will lose temporary item creation access."
+          ],
+          [
+            {
+              type: 1,
+              components: [
+                {
+                  type: 2,
+                  style: 4,
+                  label: "Confirm Remove",
+                  custom_id: `setup:panel:remove-dm-role-confirm:${roleId}`
+                },
+                {
+                  type: 2,
+                  style: 2,
+                  label: "Cancel",
+                  custom_id: "setup:panel:remove-dm-role-cancel"
                 }
               ]
             }
