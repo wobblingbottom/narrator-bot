@@ -3158,7 +3158,7 @@ function buildShopView(guildId, userId, page = 0, statusLine = null) {
       components: [
         {
           type: 10,
-          content: `${item.emoji} **${item.name}**\n-# ${item.description}`
+          content: `**${item.name}**\n${item.description.split('\n').map(line => `-# ${line}`).join('\n')}`
         }
       ],
       accessory: {
