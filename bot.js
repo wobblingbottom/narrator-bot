@@ -3938,31 +3938,6 @@ async function registerCommands() {
             .setRequired(true)
             .setAutocomplete(true)
         )
-        .addStringOption((option) =>
-          option
-            .setName("theme")
-            .setDescription("Card theme style")
-            .setRequired(false)
-            .addChoices(
-              { name: "Arcane", value: "arcane" },
-              { name: "Ember", value: "ember" },
-              { name: "Verdant", value: "verdant" },
-              { name: "Frost", value: "frost" }
-            )
-        )
-        .addStringOption((option) =>
-          option
-            .setName("accent")
-            .setDescription("Custom accent color in HEX (example: #54C0FF)")
-            .setRequired(false)
-            .setMaxLength(7)
-        )
-        .addBooleanOption((option) =>
-          option
-            .setName("show_backstory")
-            .setDescription("Show backstory text on the card")
-            .setRequired(false)
-        )
     )
     .addSubcommand((subcommand) =>
       subcommand
@@ -4979,33 +4954,73 @@ async function generateCharacterCardImage(character, options = {}) {
     });
   }
 
-  const base = sharp(Buffer.from(svg)).png();
-  if (!avatarInput) {
-    return base.toBuffer();
+  // Load background image (premium feature)
+  let bgInput = null;
+  if (options.backgroundUrl) {
+    bgInput = await loadImageBufferFromUrl(options.backgroundUrl).catch((err) => {
+      console.log("Card background load failed:", err.message);
+      return null;
+    });
   }
 
-  try {
-    const avatarResized = await sharp(avatarInput)
-      .resize(avatarSize, avatarSize, { fit: "cover" })
-      .png()
-      .toBuffer();
+  const composites = [];
 
-    const avatarMask = Buffer.from(
-      `<svg width="${avatarSize}" height="${avatarSize}" xmlns="http://www.w3.org/2000/svg"><rect width="${avatarSize}" height="${avatarSize}" rx="8" ry="8" fill="white"/></svg>`
-    );
-
-    const roundedAvatar = await sharp(avatarResized)
-      .composite([{ input: avatarMask, blend: "dest-in" }])
-      .png()
-      .toBuffer();
-
-    return base
-      .composite([{ input: roundedAvatar, left: 64, top: 66, blend: "over" }])
-      .toBuffer();
-  } catch (error) {
-    console.log("Character card avatar processing failed:", error.message);
-    return base.toBuffer();
+  // If we have a custom background, composite it under the SVG overlay
+  if (bgInput) {
+    try {
+      const bgResized = await sharp(bgInput)
+        .resize(width, height, { fit: "cover" })
+        .png()
+        .toBuffer();
+      composites.push({ input: bgResized, left: 0, top: 0, blend: "over" });
+    } catch (err) {
+      console.log("Card background processing failed:", err.message);
+    }
   }
+
+  // The SVG overlay goes on top of the background
+  const svgBuffer = Buffer.from(svg);
+  if (bgInput && composites.length > 0) {
+    // Start with the background, then overlay the SVG (which has semi-transparent panel)
+    composites.push({ input: svgBuffer, left: 0, top: 0, blend: "over" });
+  }
+
+  // Add avatar overlay
+  if (avatarInput) {
+    try {
+      const avatarResized = await sharp(avatarInput)
+        .resize(avatarSize, avatarSize, { fit: "cover" })
+        .png()
+        .toBuffer();
+
+      const avatarMask = Buffer.from(
+        `<svg width="${avatarSize}" height="${avatarSize}" xmlns="http://www.w3.org/2000/svg"><rect width="${avatarSize}" height="${avatarSize}" rx="8" ry="8" fill="white"/></svg>`
+      );
+
+      const roundedAvatar = await sharp(avatarResized)
+        .composite([{ input: avatarMask, blend: "dest-in" }])
+        .png()
+        .toBuffer();
+
+      composites.push({ input: roundedAvatar, left: 64, top: 66, blend: "over" });
+    } catch (error) {
+      console.log("Character card avatar processing failed:", error.message);
+    }
+  }
+
+  // Build final image
+  if (composites.length === 0) {
+    return sharp(svgBuffer).png().toBuffer();
+  }
+
+  if (bgInput && composites.length > 0) {
+    // Background-based: start with a blank canvas, composite everything
+    const canvas = sharp({ create: { width, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } } }).png();
+    return canvas.composite(composites).toBuffer();
+  }
+
+  // No background: SVG is the base, just overlay avatar
+  return sharp(svgBuffer).png().composite(composites).toBuffer();
 }
 
 
@@ -5947,6 +5962,12 @@ client.on("interactionCreate", async (interaction) => {
                   style: 2,
                   label: "Edit Media",
                   custom_id: `edit_media_${characterId}`
+                },
+                {
+                  type: 2,
+                  style: 2,
+                  label: "Edit Card Style",
+                  custom_id: `edit_card_style_${characterId}`
                 }
               ]
             }
@@ -6063,15 +6084,6 @@ client.on("interactionCreate", async (interaction) => {
           }
 
           const characterId = interaction.options.getString("character", true);
-          const theme = interaction.options.getString("theme", false) || "arcane";
-          const accentInput = interaction.options.getString("accent", false) || "";
-
-          if (accentInput && !/^#?[0-9a-fA-F]{6}$/.test(accentInput.trim())) {
-            await interaction.editReply({
-              content: "Accent must be a 6-digit HEX color like `#54C0FF` or `54C0FF`."
-            });
-            return;
-          }
 
           const character = getCharacterById(characterId, interaction.guildId);
 
@@ -6098,15 +6110,24 @@ client.on("interactionCreate", async (interaction) => {
             : false;
 
           const characterPointsValue = getCharacterPoints(interaction.guildId, character.id);
+          // Read saved card style from character data (set via /character edit)
+          const theme = character.cardTheme || "arcane";
+          const accentColor = character.cardAccent || "";
+          const cardBackground = character.cardBackground || "";
+
+          // Check if user has premium for background image
+          const hasPremium = getPremiumSlotBonus(interaction.guildId, interaction.user.id) > 0;
+
           let cardBuffer = null;
           try {
             cardBuffer = await generateCharacterCardImage(character, {
               theme,
-              accentColor: accentInput,
+              accentColor,
               ownerDisplay,
               pickedByDisplay: ownerDisplay,
               isPicked,
-              points: characterPointsValue
+              points: characterPointsValue,
+              backgroundUrl: hasPremium ? cardBackground : ""
             });
           } catch (cardError) {
             console.error("Profile card generation failed:", cardError);
@@ -8323,6 +8344,12 @@ client.on("interactionCreate", async (interaction) => {
                   style: 2,
                   label: "Edit Media",
                   custom_id: `edit_media_${characterId}`
+                },
+                {
+                  type: 2,
+                  style: 2,
+                  label: "Edit Card Style",
+                  custom_id: `edit_card_style_${characterId}`
                 }
               ]
             }
@@ -10428,6 +10455,131 @@ client.on("interactionCreate", async (interaction) => {
         await acknowledgeInteractionSilently(interaction);
       }
 
+      // ── Card Style modal submit handler ──
+      if (interaction.customId.startsWith("edit_character_card_style_")) {
+        const characterId = interaction.customId.replace("edit_character_card_style_", "");
+        const character = getCharacterById(characterId, interaction.guildId);
+
+        if (!character) {
+          await replyComponentsV2(interaction, "Edit Card Style", [`Character with ID "${characterId}" does not exist.`], [], { ephemeral: true });
+          return;
+        }
+
+        const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
+        const isOwner = getAssignedUserId(interaction.guildId, characterId) === interaction.user.id;
+
+        if (!isAdmin && !isOwner) {
+          await replyComponentsV2(interaction, "Edit Card Style", ["You do not have permission to edit this character."], [], { ephemeral: true });
+          return;
+        }
+
+        try {
+          const getFieldValue = (customId) => {
+            if (interaction.fields?.fields?.get) {
+              const field = interaction.fields.fields.get(customId);
+              if (field) {
+                if (Array.isArray(field.values) && field.values.length > 0) return field.values[0];
+                if (typeof field.value === "string") return field.value;
+              }
+            }
+            if (interaction.fields?.getTextInputValue) {
+              try { return interaction.fields.getTextInputValue(customId); } catch (e) {}
+            }
+            for (const row of interaction.components || []) {
+              if (row.components && row.components.length > 0) {
+                const field = row.components[0];
+                if (field.customId === customId) return field.value || "";
+              }
+            }
+            return "";
+          };
+
+          const newTheme = getFieldValue("card_theme");
+          const newAccent = getFieldValue("card_accent");
+          const newBackground = getFieldValue("card_background");
+
+          const validThemes = ["arcane", "ember", "verdant", "frost"];
+          const updates = [];
+
+          // Theme
+          if (newTheme && newTheme.trim()) {
+            const themeVal = newTheme.trim().toLowerCase();
+            if (validThemes.includes(themeVal) && character.cardTheme !== themeVal) {
+              character.cardTheme = themeVal;
+              updates.push(`Theme: **${themeVal}**`);
+            } else if (!validThemes.includes(themeVal)) {
+              await replyComponentsV2(interaction, "Edit Card Style", [`Invalid theme "${themeVal}". Choose from: arcane, ember, verdant, frost.`], [], { ephemeral: true });
+              return;
+            }
+          }
+
+          // Accent color
+          if (newAccent && newAccent.trim()) {
+            const accentVal = newAccent.trim();
+            if (!/^#?[0-9a-fA-F]{6}$/.test(accentVal)) {
+              await replyComponentsV2(interaction, "Edit Card Style", ["Accent must be a 6-digit HEX color like `#54C0FF` or `54C0FF`."], [], { ephemeral: true });
+              return;
+            }
+            if (character.cardAccent !== accentVal) {
+              character.cardAccent = accentVal;
+              updates.push(`Accent: **${accentVal}**`);
+            }
+          } else if (character.cardAccent) {
+            // Cleared
+            character.cardAccent = "";
+            updates.push("Accent: **reset to default**");
+          }
+
+          // Background image (premium only)
+          const hasPremium = getPremiumSlotBonus(interaction.guildId, interaction.user.id) > 0;
+          if (newBackground && newBackground.trim()) {
+            if (!hasPremium) {
+              await replyComponentsV2(interaction, "Edit Card Style", ["Custom background images require the **+5 Character Slots** premium subscription."], [], { ephemeral: true });
+              return;
+            }
+            const bgVal = newBackground.trim();
+            if (character.cardBackground !== bgVal) {
+              character.cardBackground = bgVal;
+              updates.push(`Background: **set**`);
+            }
+          } else if (character.cardBackground) {
+            character.cardBackground = "";
+            updates.push("Background: **removed**");
+          }
+
+          if (updates.length === 0) {
+            await acknowledgeInteractionSilently(interaction);
+            return;
+          }
+
+          writeJson(CHARACTERS_PATH, characters);
+
+          // Log changes
+          const logsChannelId = getLogsChannelIdForGuild(interaction.guildId);
+          if (logsChannelId) {
+            try {
+              const logsChannel = await interaction.client.channels.fetch(logsChannelId);
+              if (logsChannel?.isTextBased()) {
+                const actorName = interaction.user.username;
+                const emojiUpdates = updates.map((change) => `${BULLET_EMOJI_RAW} ${change}`);
+                await logsChannel.send({
+                  content: `**${actorName}** edited card style for **${character.name}** (\`${characterId}\`):\n${emojiUpdates.join("\n")}`,
+                  allowedMentions: { parse: [] }
+                });
+              }
+            } catch (logError) {
+              console.error("Failed to send log to logs channel:", logError);
+            }
+          }
+
+          await acknowledgeInteractionSilently(interaction);
+        } catch (error) {
+          console.error("Error processing card style modal:", error);
+          await replyComponentsV2(interaction, "Error", ["Failed to save card style. Please try again."], [], { ephemeral: true });
+        }
+        return;
+      }
+
       console.log("Checking edit_character_media_...");
       if (interaction.customId.startsWith("edit_character_media_")) {
         console.log("=== MEDIA EDIT HANDLER ===");
@@ -10736,6 +10888,90 @@ client.on("interactionCreate", async (interaction) => {
             interaction,
             "Error",
             ["Failed to open edit form. Please try again."],
+            [],
+            { ephemeral: true }
+          );
+        }
+        return;
+      }
+
+      if (interaction.customId.startsWith("edit_card_style_")) {
+        const characterId = interaction.customId.replace("edit_card_style_", "");
+        const character = getCharacterById(characterId, interaction.guildId);
+
+        if (!character) {
+          await replyComponentsV2(
+            interaction,
+            "Edit Card Style",
+            [`Character with ID "${characterId}" does not exist.`],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        // Check permissions: admin OR character owner
+        const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
+        const isOwner = getAssignedUserId(interaction.guildId, characterId) === interaction.user.id;
+
+        if (!isAdmin && !isOwner) {
+          await replyComponentsV2(
+            interaction,
+            "Edit Card Style",
+            ["You do not have permission to edit this character."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        // Check premium for background image
+        const hasPremium = getPremiumSlotBonus(interaction.guildId, interaction.user.id) > 0;
+
+        try {
+          const themeInput = new TextInputBuilder()
+            .setCustomId("card_theme")
+            .setLabel("Theme (arcane / ember / verdant / frost)")
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder("arcane")
+            .setValue(character.cardTheme || "arcane")
+            .setRequired(false)
+            .setMaxLength(10);
+
+          const accentInput = new TextInputBuilder()
+            .setCustomId("card_accent")
+            .setLabel("Accent Color (HEX, e.g. #54C0FF)")
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder("Leave empty for theme default")
+            .setValue(character.cardAccent || "")
+            .setRequired(false)
+            .setMaxLength(7);
+
+          const bgInput = new TextInputBuilder()
+            .setCustomId("card_background")
+            .setLabel(hasPremium ? "Background Image URL (premium)" : "Background Image URL (premium only)")
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder(hasPremium ? "Paste an image URL or leave empty" : "Requires +5 Slots premium subscription")
+            .setValue(character.cardBackground || "")
+            .setRequired(false)
+            .setMaxLength(500);
+
+          const modal = new ModalBuilder()
+            .setCustomId(`edit_character_card_style_${characterId}`)
+            .setTitle("Edit Card Style")
+            .addComponents(
+              new ActionRowBuilder().addComponents(themeInput),
+              new ActionRowBuilder().addComponents(accentInput),
+              new ActionRowBuilder().addComponents(bgInput)
+            );
+
+          await interaction.showModal(modal);
+        } catch (error) {
+          console.error("Error creating/showing card style edit modal:", error);
+          await replyComponentsV2(
+            interaction,
+            "Error",
+            ["Failed to open card style form. Please try again."],
             [],
             { ephemeral: true }
           );
