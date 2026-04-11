@@ -4757,47 +4757,16 @@ async function generateProfileImage(character) {
 
 async function generateCharacterCardImage(character, options = {}) {
   const themePresets = {
-    arcane: {
-      bgA: "#0B1026",
-      bgB: "#111D44",
-      bgC: "#2A3D78",
-      panel: "#0A142DCC",
-      textPrimary: "#EAF4FF",
-      textMuted: "#A8C0E6",
-      accent: "#54C0FF"
-    },
-    ember: {
-      bgA: "#190B08",
-      bgB: "#3B1510",
-      bgC: "#6D2313",
-      panel: "#2A100BDD",
-      textPrimary: "#FFF3EB",
-      textMuted: "#F1C4AE",
-      accent: "#FF8A3D"
-    },
-    verdant: {
-      bgA: "#081C16",
-      bgB: "#11362B",
-      bgC: "#1F5A45",
-      panel: "#0B221ADD",
-      textPrimary: "#EDFFF5",
-      textMuted: "#B7E7D2",
-      accent: "#4FD7A3"
-    },
-    frost: {
-      bgA: "#081420",
-      bgB: "#123049",
-      bgC: "#1E4F70",
-      panel: "#0B1F33DD",
-      textPrimary: "#F1FBFF",
-      textMuted: "#B9DBEC",
-      accent: "#6DD3FF"
-    }
+    arcane: { bgA: "#0B1026", bgB: "#111D44", bgC: "#2A3D78", panel: "#0A142DCC", textPrimary: "#EAF4FF", textMuted: "#A8C0E6", accent: "#54C0FF" },
+    ember: { bgA: "#190B08", bgB: "#3B1510", bgC: "#6D2313", panel: "#2A100BDD", textPrimary: "#FFF3EB", textMuted: "#F1C4AE", accent: "#FF8A3D" },
+    verdant: { bgA: "#081C16", bgB: "#11362B", bgC: "#1F5A45", panel: "#0B221ADD", textPrimary: "#EDFFF5", textMuted: "#B7E7D2", accent: "#4FD7A3" },
+    frost: { bgA: "#081420", bgB: "#123049", bgC: "#1E4F70", panel: "#0B1F33DD", textPrimary: "#F1FBFF", textMuted: "#B9DBEC", accent: "#6DD3FF" }
   };
 
   const width = 1200;
   const height = 675;
   const avatarSize = 220;
+  const page = Number(options.page) === 2 ? 2 : 1;
   const themeKey = String(options.theme || "arcane").toLowerCase();
   const palette = themePresets[themeKey] || themePresets.arcane;
   const accent = normalizeHexColor(options.accentColor, palette.accent);
@@ -4811,17 +4780,15 @@ async function generateCharacterCardImage(character, options = {}) {
   const ownerDisplay = clampText(options.ownerDisplay || "Unassigned", 30) || "Unassigned";
   const pickedByDisplay = clampText(options.pickedByDisplay || ownerDisplay, 30) || ownerDisplay;
   const isPicked = Boolean(options.isPicked);
-  const name = clampText(character.name || character.id, 38) || "Unknown Character";
-  const bio = clampText(character.bio, 120) || "No bio set yet.";
-  const personality = clampText(character.personality, 90) || "Unknown";
-  const race = clampText(character.race, 32) || "Unknown";
-  const className = clampText(character.class, 32) || "Unknown";
+  const name = clampText(character.name || character.id, 36) || "Unknown Character";
+  const bio = clampText(character.bio, page === 1 ? 120 : 200) || "No bio set yet.";
+  const personality = clampText(character.personality, page === 1 ? 130 : 200) || "Unknown";
+  const race = clampText(character.race, 30) || "Unknown";
+  const className = clampText(character.class, 30) || "Unknown";
   const relationshipRaw = clampText(character.relationship, 24);
-  const relationship = relationshipRaw
-    ? `${relationshipRaw.charAt(0).toUpperCase()}${relationshipRaw.slice(1).toLowerCase()}`
-    : "Neutral";
+  const relationship = relationshipRaw ? `${relationshipRaw.charAt(0).toUpperCase()}${relationshipRaw.slice(1).toLowerCase()}` : "Neutral";
   const age = character.age ? clampText(String(character.age), 16) : "Unknown";
-  const backstory = clampText(character.backstory, 200) || "No backstory yet.";
+  const backstory = clampText(character.backstory, options.showBackstory ? 260 : 140) || "No backstory yet.";
   const hasAvatar = Boolean(character.avatarUrl);
 
   const safeName = escapeSvgText(name);
@@ -4836,9 +4803,55 @@ async function generateCharacterCardImage(character, options = {}) {
   const safePickedBy = escapeSvgText(pickedByDisplay);
   const safeCharacterId = escapeSvgText(character.id || "unknown");
   const safePoints = escapeSvgText(formatPoints(points));
+  const safeThemeName = escapeSvgText(themeKey);
 
-  const xpWidth = 430;
-  const xpFilledWidth = Math.max(10, Math.round(xpWidth * progressRatio));
+  const pageBody = page === 1
+    ? `
+  <text x="320" y="112" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="20" letter-spacing="2">DND PROFILE - PAGE 1/2</text>
+  <text x="320" y="166" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="60" font-weight="700">${safeName}</text>
+  <text x="320" y="206" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="24">Class: ${safeClass}  |  Race: ${safeRace}  |  Level: ${level}</text>
+
+  <rect x="320" y="232" width="842" height="92" rx="16" fill="#FFFFFF" fill-opacity="0.05"/>
+  <text x="342" y="266" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="19">BIO</text>
+  <text x="342" y="298" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="30">${safeBio}</text>
+
+  <rect x="320" y="346" width="540" height="126" rx="18" fill="#FFFFFF" fill-opacity="0.05"/>
+  <text x="342" y="384" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="20">PERSONALITY</text>
+  <text x="342" y="418" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="27">${safePersonality}</text>
+
+  <rect x="882" y="346" width="280" height="126" rx="18" fill="#FFFFFF" fill-opacity="0.05"/>
+  <text x="904" y="384" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="20">CORE STATS</text>
+  <text x="904" y="418" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="24">Age: ${safeAge}</text>
+  <text x="904" y="450" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="24">Status: ${safeRelationship}</text>
+
+  <rect x="320" y="492" width="842" height="136" rx="18" fill="#FFFFFF" fill-opacity="0.045"/>
+  <text x="342" y="530" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="20">BACKSTORY SNAPSHOT</text>
+  <text x="342" y="566" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="24">${safeBackstory}</text>
+`
+    : `
+  <text x="320" y="112" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="20" letter-spacing="2">CHARACTER DETAILS - PAGE 2/2</text>
+  <text x="320" y="166" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="54" font-weight="700">${safeName}</text>
+  <text x="320" y="206" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="22">ID: ${safeCharacterId}  |  Owner: ${safeOwner}  |  Theme: ${safeThemeName}</text>
+
+  <rect x="320" y="232" width="842" height="124" rx="18" fill="#FFFFFF" fill-opacity="0.05"/>
+  <text x="342" y="270" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="20">POINTS & PROGRESSION</text>
+  <text x="342" y="306" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="38" font-weight="700">${safePoints} points</text>
+  <text x="700" y="306" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="24">Level ${level}  |  XP ${levelXp}/100 (${progressPercent}%)</text>
+  <rect x="342" y="320" width="500" height="20" rx="10" fill="#FFFFFF" fill-opacity="0.18"/>
+  <rect x="342" y="320" width="${Math.max(12, Math.round(500 * progressRatio))}" height="20" rx="10" fill="url(#xpFill)"/>
+
+  <rect x="320" y="376" width="412" height="120" rx="18" fill="#FFFFFF" fill-opacity="0.045"/>
+  <text x="342" y="414" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="20">RELATIONSHIP</text>
+  <text x="342" y="450" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="30">${safeRelationship}</text>
+
+  <rect x="750" y="376" width="412" height="120" rx="18" fill="#FFFFFF" fill-opacity="0.045"/>
+  <text x="772" y="414" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="20">PERSONALITY</text>
+  <text x="772" y="450" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="28">${safePersonality}</text>
+
+  <rect x="320" y="514" width="842" height="114" rx="18" fill="#FFFFFF" fill-opacity="0.045"/>
+  <text x="342" y="551" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="20">BACKSTORY</text>
+  <text x="342" y="585" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="24">${safeBackstory}</text>
+`;
 
   const svg = `
 <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
@@ -4856,69 +4869,30 @@ async function generateCharacterCardImage(character, options = {}) {
       <stop offset="0%" stop-color="${accent}"/>
       <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.85"/>
     </linearGradient>
-    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="12" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
   </defs>
 
   <rect x="0" y="0" width="${width}" height="${height}" fill="url(#bg)"/>
-  <circle cx="980" cy="120" r="160" fill="${accent}" opacity="0.22" filter="url(#softGlow)"/>
-  <circle cx="140" cy="560" r="140" fill="${accent}" opacity="0.14"/>
+  <circle cx="960" cy="118" r="160" fill="${accent}" opacity="0.18"/>
+  <circle cx="128" cy="570" r="150" fill="${accent}" opacity="0.14"/>
 
   <rect x="34" y="34" width="1132" height="607" rx="28" fill="${palette.panel}" stroke="${accent}" stroke-opacity="0.45"/>
   <rect x="34" y="34" width="1132" height="8" fill="url(#accentGlow)" rx="28"/>
 
   ${isPicked
     ? `<g>
-    <rect x="914" y="56" width="220" height="52" rx="12" fill="${accent}"/>
-    <text x="1024" y="88" text-anchor="middle" fill="#0A0F1D" font-family="'Segoe UI', Arial, sans-serif" font-size="24" font-weight="700">PICKED</text>
-    <text x="1024" y="116" text-anchor="middle" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="14">by ${safePickedBy}</text>
+    <rect x="918" y="54" width="220" height="52" rx="12" fill="${accent}"/>
+    <text x="1028" y="87" text-anchor="middle" fill="#0A0F1D" font-family="'Segoe UI', Arial, sans-serif" font-size="24" font-weight="700">PICKED</text>
+    <text x="1028" y="114" text-anchor="middle" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="14">by ${safePickedBy}</text>
   </g>`
     : ""}
 
-  <text x="300" y="112" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="22" letter-spacing="3">DYNAMIC CHARACTER CARD</text>
-  <text x="300" y="164" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="56" font-weight="700">${safeName}</text>
+  <rect x="60" y="124" width="246" height="246" rx="42" fill="#FFFFFF" fill-opacity="0.08" stroke="${accent}" stroke-opacity="0.65" stroke-width="3"/>
+  ${hasAvatar ? "" : `<text x="183" y="264" text-anchor="middle" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="18">AVATAR</text>`}
 
-  <text x="300" y="208" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="22">ID: ${safeCharacterId}  •  Owner: ${safeOwner}</text>
-  <text x="300" y="246" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="24">${safeBio}</text>
-
-  <rect x="300" y="274" width="500" height="108" rx="18" fill="#FFFFFF" fill-opacity="0.05"/>
-  <text x="322" y="316" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="20">PERSONALITY</text>
-  <text x="322" y="350" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="24">${safePersonality}</text>
-
-  <rect x="825" y="274" width="307" height="108" rx="18" fill="#FFFFFF" fill-opacity="0.05"/>
-  <text x="845" y="314" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="20">LEVEL</text>
-  <text x="845" y="352" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="48" font-weight="700">${level}</text>
-
-  <rect x="300" y="405" width="832" height="188" rx="22" fill="#FFFFFF" fill-opacity="0.045"/>
-  <text x="322" y="446" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="20">STATS</text>
-  <text x="322" y="482" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="24">Race: ${safeRace}</text>
-  <text x="322" y="518" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="24">Class: ${safeClass}</text>
-  <text x="322" y="554" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="24">Relationship: ${safeRelationship}</text>
-  <text x="322" y="590" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="24">Age: ${safeAge}</text>
-
-  <text x="660" y="482" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="20">CHARACTER POINTS</text>
-  <text x="660" y="516" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="34" font-weight="700">${safePoints}</text>
-  <text x="660" y="552" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="18">XP ${levelXp}/100 (${progressPercent}%)</text>
-
-  <rect x="660" y="565" width="${xpWidth}" height="18" rx="9" fill="#FFFFFF" fill-opacity="0.18"/>
-  <rect x="660" y="565" width="${xpFilledWidth}" height="18" rx="9" fill="url(#xpFill)"/>
-
-  ${options.showBackstory
-    ? `<text x="660" y="602" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="18">BACKSTORY</text>
-  <text x="660" y="628" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="18">${safeBackstory}</text>`
-    : ""}
-
-  <rect x="60" y="90" width="246" height="246" rx="42" fill="#FFFFFF" fill-opacity="0.08" stroke="${accent}" stroke-opacity="0.65" stroke-width="3"/>
-  ${hasAvatar ? "" : `<text x="183" y="225" text-anchor="middle" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="18">AVATAR</text>`}
+  ${pageBody}
 </svg>`;
 
   const base = sharp(Buffer.from(svg)).png();
-
   if (!character.avatarUrl) {
     return base.toBuffer();
   }
@@ -4944,14 +4918,7 @@ async function generateCharacterCardImage(character, options = {}) {
       .toBuffer();
 
     return base
-      .composite([
-        {
-          input: roundedAvatar,
-          left: 73,
-          top: 103,
-          blend: "over"
-        }
-      ])
+      .composite([{ input: roundedAvatar, left: 73, top: 137, blend: "over" }])
       .toBuffer();
   } catch (error) {
     console.log("Character card avatar processing failed:", error.message);
@@ -6041,20 +6008,40 @@ client.on("interactionCreate", async (interaction) => {
             ? getSelectedCharacterId(interaction.guildId, ownerId) === character.id
             : false;
 
-          const cardBuffer = await generateCharacterCardImage(character, {
+          const cardPageOneBuffer = await generateCharacterCardImage(character, {
             theme,
             accentColor: accentInput,
             showBackstory,
             ownerDisplay,
             pickedByDisplay: ownerDisplay,
             isPicked,
-            points: getCharacterPoints(interaction.guildId, character.id)
+            points: getCharacterPoints(interaction.guildId, character.id),
+            page: 1
           });
 
-          if (cardBuffer) {
+          const cardPageTwoBuffer = await generateCharacterCardImage(character, {
+            theme,
+            accentColor: accentInput,
+            showBackstory,
+            ownerDisplay,
+            pickedByDisplay: ownerDisplay,
+            isPicked,
+            points: getCharacterPoints(interaction.guildId, character.id),
+            page: 2
+          });
+
+          if (cardPageOneBuffer || cardPageTwoBuffer) {
+            const files = [];
+            if (cardPageOneBuffer) {
+              files.push({ attachment: cardPageOneBuffer, name: `character-profile-${character.id}-p1.png` });
+            }
+            if (cardPageTwoBuffer) {
+              files.push({ attachment: cardPageTwoBuffer, name: `character-profile-${character.id}-p2.png` });
+            }
+
             await interaction.reply({
-              content: `**${character.name}**`,
-              files: [{ attachment: cardBuffer, name: `character-profile-${character.id}.png` }],
+              content: `**${character.name}** • Profile Pages ${files.length === 2 ? "1/2 + 2/2" : "generated"}`,
+              files,
               allowedMentions: { parse: [] }
             });
             return;
