@@ -4747,6 +4747,22 @@ async function generateCharacterCardImage(character, options = {}) {
 
   const pickedByDisplay = clampText(options.pickedByDisplay || options.ownerDisplay || "???", 30);
   const isPicked = Boolean(options.isPicked);
+  const points = Number(options.points) || 0;
+
+  // Level calculation: each level requires progressively more points
+  const calcLevel = (pts) => {
+    let lvl = 1;
+    let threshold = 10;
+    let remaining = pts;
+    while (remaining >= threshold) {
+      remaining -= threshold;
+      lvl++;
+      threshold = Math.floor(threshold * 1.4);
+    }
+    return { level: lvl, currentXp: remaining, nextXp: threshold };
+  };
+  const levelInfo = calcLevel(points);
+
   const name = clampText(character.name || character.id, 36) || "Unknown Character";
   const bio = clampText(character.bio, 210) || "No bio set yet.";
   const personality = clampText(character.personality, 210) || "Unknown";
@@ -4930,13 +4946,28 @@ async function generateCharacterCardImage(character, options = {}) {
   ${(() => {
     const originsLabelY = 138 + Math.max(56, bioLines.length * 24 + 24) + 36 + Math.max(56, personalityLines.length * 24 + 24) + 22;
     const originsBoxY = originsLabelY + 14;
-    const remainingHeight = Math.max(80, 590 - originsBoxY);
+    const originsHeight = Math.max(70, Math.min(560 - originsBoxY, backstoryLines.length * 22 + 28));
+    const statsY = originsBoxY + originsHeight + 14;
+    const xpBarWidth = 200;
+    const xpFillWidth = Math.min(xpBarWidth, Math.floor((levelInfo.currentXp / Math.max(1, levelInfo.nextXp)) * xpBarWidth));
     return `
   ${sectionLabel(cx, originsLabelY, "ORIGINS")}
-  <rect x="${cx}" y="${originsBoxY}" width="${cw}" height="${remainingHeight}" rx="8" fill="${palette.sectionBg}" fill-opacity="0.4" stroke="${palette.border}" stroke-opacity="0.12" stroke-width="1"/>
+  <rect x="${cx}" y="${originsBoxY}" width="${cw}" height="${originsHeight}" rx="8" fill="${palette.sectionBg}" fill-opacity="0.4" stroke="${palette.border}" stroke-opacity="0.12" stroke-width="1"/>
   <text x="${cx + 16}" y="${originsBoxY + 24}" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="17">
     ${safeBackstoryLines.map((line, i) => `<tspan x="${cx + 16}" dy="${i === 0 ? 0 : 22}">${line}</tspan>`).join("")}
-  </text>`;
+  </text>
+
+  <!-- Stats row -->
+  <text x="${cx}" y="${statsY + 14}" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="12" letter-spacing="2">LEVEL</text>
+  <text x="${cx + 52}" y="${statsY + 14}" fill="${accent}" font-family="Georgia, 'Times New Roman', serif" font-size="18" font-weight="700">${levelInfo.level}</text>
+
+  <!-- XP bar -->
+  <rect x="${cx + 90}" y="${statsY + 2}" width="${xpBarWidth}" height="14" rx="7" fill="${palette.sectionBg}" stroke="${palette.border}" stroke-opacity="0.25" stroke-width="1"/>
+  <rect x="${cx + 91}" y="${statsY + 3}" width="${Math.max(0, xpFillWidth - 2)}" height="12" rx="6" fill="${accent}" fill-opacity="0.6"/>
+  <text x="${cx + 90 + xpBarWidth / 2}" y="${statsY + 13}" text-anchor="middle" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="9" font-weight="600">${levelInfo.currentXp} / ${levelInfo.nextXp} XP</text>
+
+  <text x="${cx + 310}" y="${statsY + 14}" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="12" letter-spacing="2">MESSAGES</text>
+  <text x="${cx + 400}" y="${statsY + 14}" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="18" font-weight="600">${points}</text>`;
   })()}
 
   <!-- Bottom flourish -->
