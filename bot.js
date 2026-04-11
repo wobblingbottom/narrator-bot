@@ -3220,14 +3220,6 @@ function buildShopView(guildId, userId, page = 0, statusLine = null) {
     components.push({ type: 14, divider: true, spacing: 1 });
   }
 
-  if (DISCORD_PREMIUM_SLOT_SKU_IDS.size > 0) {
-    components.push({
-      type: 10,
-      content: `${SHOP_ITEM_EMOJI_RAW} **+${DISCORD_PREMIUM_SUBSCRIPTION_SLOTS} Character Slots (Subscription)**\nGrants ${DISCORD_PREMIUM_SUBSCRIPTION_SLOTS} extra slots for as long as your subscription is active. Slots disappear if subscription ends.\nUse **/premium** to open the Discord subscription purchase flow.`
-    });
-    components.push({ type: 14, divider: true, spacing: 1 });
-  }
-
   pageItems.forEach((item, index) => {
     components.push({
       type: 9,
@@ -4353,7 +4345,7 @@ async function registerCommands() {
 
   const premiumCommand = new SlashCommandBuilder()
     .setName("premium")
-    .setDescription(`Subscribe for +${DISCORD_PREMIUM_SUBSCRIPTION_SLOTS} extra character slots while active`);
+    .setDescription(`Subscribe to unlock premium features including extra character slots`);
 
   const shopCommand = new SlashCommandBuilder()
     .setName("shop")
@@ -8142,9 +8134,9 @@ client.on("interactionCreate", async (interaction) => {
           : null;
 
         const messageContent = [
-          `**Premium — +${DISCORD_PREMIUM_SUBSCRIPTION_SLOTS} Character Slots (Subscription)**`,
+          `**Premium Features Subscription**`,
           ``,
-          `• Subscribe to unlock **+${DISCORD_PREMIUM_SUBSCRIPTION_SLOTS} extra character slots** through Discord.`,
+          `• Subscribe to unlock **+${DISCORD_PREMIUM_SUBSCRIPTION_SLOTS} extra character slots**, custom card backgrounds, and more.`,
           `• Slots are active for as long as your subscription is running.`,
           `• If you cancel, the subscription slots disappear but your characters are never deleted.`,
           `• After subscribing, run \`/wallet\` to confirm your slots are active.`
@@ -10579,7 +10571,7 @@ client.on("interactionCreate", async (interaction) => {
           const hasPremium = getPremiumSlotBonus(interaction.guildId, interaction.user.id) > 0;
           if (newBackground && newBackground.trim()) {
             if (!hasPremium) {
-              await replyComponentsV2(interaction, "Edit Card Style", ["Custom background images require the **+5 Character Slots** premium subscription."], [], { ephemeral: true });
+              await replyComponentsV2(interaction, "Edit Card Style", ["Custom background images require the **Premium Features Subscription**."], [], { ephemeral: true });
               return;
             }
             const bgVal = newBackground.trim();
