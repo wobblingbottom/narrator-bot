@@ -876,6 +876,51 @@ async function withTimeout(promise, timeoutMs, timeoutMessage) {
   }
 }
 
+async function loadImageBufferFromUrl(url, timeoutMs = 12000) {
+  const rawUrl = String(url || "").trim();
+  if (!rawUrl) {
+    return null;
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch (error) {
+    return null;
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return null;
+  }
+
+  try {
+    const response = await withTimeout(
+      fetch(parsed.toString(), {
+        method: "GET",
+        headers: {
+          "User-Agent": "NarratorBot/1.0"
+        }
+      }),
+      timeoutMs,
+      "Timed out while loading avatar image."
+    );
+
+    if (!response?.ok) {
+      return null;
+    }
+
+    const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+    if (contentType && !contentType.startsWith("image/")) {
+      return null;
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    return buffer.length > 0 ? buffer : null;
+  } catch (error) {
+    return null;
+  }
+}
+
 function clearWebhookAutoDeleteTimer(webhookId) {
   if (!webhookId) {
     return;
@@ -4645,7 +4690,12 @@ async function generateProfileImage(character) {
 
     try {
       console.log(`Loading avatar from: ${character.avatarUrl.substring(0, 100)}...`);
-      const avatarResized = await sharp(character.avatarUrl)
+      const avatarInput = await loadImageBufferFromUrl(character.avatarUrl);
+      if (!avatarInput) {
+        return null;
+      }
+
+      const avatarResized = await sharp(avatarInput)
         .resize(avatarSize, avatarSize, { fit: "cover" })
         .toBuffer();
 
@@ -4772,6 +4822,7 @@ async function generateCharacterCardImage(character, options = {}) {
     : "Neutral";
   const age = character.age ? clampText(String(character.age), 16) : "Unknown";
   const backstory = clampText(character.backstory, 200) || "No backstory yet.";
+  const hasAvatar = Boolean(character.avatarUrl);
 
   const safeName = escapeSvgText(name);
   const safeBio = escapeSvgText(bio);
@@ -4863,7 +4914,7 @@ async function generateCharacterCardImage(character, options = {}) {
     : ""}
 
   <rect x="60" y="90" width="246" height="246" rx="42" fill="#FFFFFF" fill-opacity="0.08" stroke="${accent}" stroke-opacity="0.65" stroke-width="3"/>
-  <text x="183" y="225" text-anchor="middle" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="18">AVATAR</text>
+  ${hasAvatar ? "" : `<text x="183" y="225" text-anchor="middle" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="18">AVATAR</text>`}
 </svg>`;
 
   const base = sharp(Buffer.from(svg)).png();
@@ -4873,7 +4924,12 @@ async function generateCharacterCardImage(character, options = {}) {
   }
 
   try {
-    const avatarResized = await sharp(character.avatarUrl)
+    const avatarInput = await loadImageBufferFromUrl(character.avatarUrl);
+    if (!avatarInput) {
+      return base.toBuffer();
+    }
+
+    const avatarResized = await sharp(avatarInput)
       .resize(avatarSize, avatarSize, { fit: "cover" })
       .png()
       .toBuffer();
