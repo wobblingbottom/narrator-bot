@@ -4773,14 +4773,14 @@ async function generateCharacterCardImage(character, options = {}) {
   const pickedByDisplay = clampText(options.pickedByDisplay || options.ownerDisplay || "???", 30);
   const isPicked = Boolean(options.isPicked);
   const name = clampText(character.name || character.id, 36) || "Unknown Character";
-  const bio = clampText(character.bio, 100) || "No bio set yet.";
-  const personality = clampText(character.personality, 90) || "Unknown";
+  const bio = clampText(character.bio, 210) || "No bio set yet.";
+  const personality = clampText(character.personality, 210) || "Unknown";
   const race = clampText(character.race, 30) || "Unknown";
   const className = clampText(character.class, 30) || "Unknown";
   const relationshipRaw = clampText(character.relationship, 24);
   const relationship = relationshipRaw ? `${relationshipRaw.charAt(0).toUpperCase()}${relationshipRaw.slice(1).toLowerCase()}` : "Neutral";
   const age = character.age ? clampText(String(character.age), 16) : "Unknown";
-  const backstory = clampText(character.backstory, 160) || "No backstory yet.";
+  const backstory = clampText(character.backstory, 350) || "No backstory yet.";
 
   const safeName = escapeSvgText(name);
   const safeBio = escapeSvgText(bio);
@@ -4811,8 +4811,33 @@ async function generateCharacterCardImage(character, options = {}) {
     <circle cx="${x + w / 2}" cy="${y}" r="2.5" fill="${accent}" fill-opacity="0.3"/>`;
 
   // Right-side content x start (after avatar column)
-  const cx = 300;
-  const cw = 850;
+  const cx = 280;
+  const cw = 870;
+
+  // Helper to wrap long text into multiple tspan lines
+  const wrapText = (text, maxCharsPerLine) => {
+    const words = text.split(" ");
+    const lines = [];
+    let current = "";
+    for (const w of words) {
+      if ((current + " " + w).trim().length > maxCharsPerLine && current.length > 0) {
+        lines.push(current.trim());
+        current = w;
+      } else {
+        current = current ? current + " " + w : w;
+      }
+    }
+    if (current.trim()) lines.push(current.trim());
+    return lines;
+  };
+
+  const bioLines = wrapText(bio, 70);
+  const personalityLines = wrapText(personality, 70);
+  const backstoryLines = wrapText(backstory, 70);
+
+  const safeBioLines = bioLines.map(l => escapeSvgText(l));
+  const safePersonalityLines = personalityLines.map(l => escapeSvgText(l));
+  const safeBackstoryLines = backstoryLines.map(l => escapeSvgText(l));
 
   const svg = `
 <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
@@ -4871,46 +4896,78 @@ async function generateCharacterCardImage(character, options = {}) {
   <text x="1040" y="96" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="12" font-style="italic">by ${safePickedBy}</text>`
     : ""}
 
+  <!-- ===== LEFT COLUMN ===== -->
+
   <!-- Avatar frame -->
-  <rect x="50" y="60" width="210" height="210" rx="10" fill="${palette.sectionBg}" stroke="${palette.border}" stroke-opacity="0.4" stroke-width="2"/>
-  <rect x="54" y="64" width="202" height="202" rx="8" fill="none" stroke="${accent}" stroke-opacity="0.15" stroke-width="1" stroke-dasharray="3,6"/>
-  <text x="155" y="172" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="13" font-style="italic" fill-opacity="0.4">No Portrait</text>
+  <rect x="54" y="56" width="200" height="200" rx="10" fill="${palette.sectionBg}" stroke="${palette.border}" stroke-opacity="0.4" stroke-width="2"/>
+  <rect x="58" y="60" width="192" height="192" rx="8" fill="none" stroke="${accent}" stroke-opacity="0.15" stroke-width="1" stroke-dasharray="3,6"/>
+  <text x="154" y="158" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="13" font-style="italic" fill-opacity="0.4">No Portrait</text>
 
-  <!-- Ornate diamond under avatar -->
-  <polygon points="155,284 164,296 155,308 146,296" fill="none" stroke="${accent}" stroke-opacity="0.3" stroke-width="1.5"/>
-  <circle cx="155" cy="296" r="2.5" fill="${accent}" fill-opacity="0.4"/>
+  <!-- Ornate diamond separator -->
+  <line x1="70" y1="278" x2="130" y2="278" stroke="${accent}" stroke-opacity="0.2" stroke-width="1"/>
+  <polygon points="154,270 162,280 154,290 146,280" fill="none" stroke="${accent}" stroke-opacity="0.35" stroke-width="1.5"/>
+  <circle cx="154" cy="280" r="2" fill="${accent}" fill-opacity="0.4"/>
+  <line x1="178" y1="278" x2="238" y2="278" stroke="${accent}" stroke-opacity="0.2" stroke-width="1"/>
 
-  <!-- Under-avatar info: class + race -->
-  <text x="155" y="332" text-anchor="middle" fill="${accent}" font-family="Georgia, 'Times New Roman', serif" font-size="16" font-style="italic">${safeClass}</text>
-  <text x="155" y="354" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="13">of the ${safeRace}</text>
+  <!-- Left vitals panel -->
+  <rect x="54" y="300" width="200" height="275" rx="8" fill="${palette.sectionBg}" fill-opacity="0.4" stroke="${palette.border}" stroke-opacity="0.15" stroke-width="1"/>
 
-  <!-- Under-avatar vitals -->
-  <text x="80" y="396" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="13" font-style="italic">Age</text>
-  <text x="120" y="396" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="16">${safeAge}</text>
-  <text x="80" y="424" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="13" font-style="italic">Bond</text>
-  <text x="120" y="424" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="16">${safeRelationship}</text>
+  <!-- Class -->
+  <text x="154" y="330" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="11" letter-spacing="2" text-transform="uppercase">CLASS</text>
+  <text x="154" y="352" text-anchor="middle" fill="${accent}" font-family="Georgia, 'Times New Roman', serif" font-size="17" font-weight="600">${safeClass}</text>
+
+  <!-- Race -->
+  <line x1="80" y1="370" x2="228" y2="370" stroke="${palette.border}" stroke-opacity="0.2" stroke-width="1"/>
+  <text x="154" y="392" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="11" letter-spacing="2" text-transform="uppercase">RACE</text>
+  <text x="154" y="414" text-anchor="middle" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="17">${safeRace}</text>
+
+  <!-- Age -->
+  <line x1="80" y1="432" x2="228" y2="432" stroke="${palette.border}" stroke-opacity="0.2" stroke-width="1"/>
+  <text x="154" y="454" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="11" letter-spacing="2" text-transform="uppercase">AGE</text>
+  <text x="154" y="476" text-anchor="middle" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="17">${safeAge}</text>
+
+  <!-- Bond -->
+  <line x1="80" y1="494" x2="228" y2="494" stroke="${palette.border}" stroke-opacity="0.2" stroke-width="1"/>
+  <text x="154" y="516" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="11" letter-spacing="2" text-transform="uppercase">BOND</text>
+  <text x="154" y="538" text-anchor="middle" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="17">${safeRelationship}</text>
+
+  <!-- ===== RIGHT COLUMN ===== -->
 
   <!-- CHARACTER NAME -->
-  <text x="${cx}" y="82" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="48" font-weight="700" letter-spacing="1">${safeName}</text>
-  ${divider(cx, 96, cw)}
+  <text x="${cx}" y="82" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="44" font-weight="700" letter-spacing="1">${safeName}</text>
+  ${divider(cx, 98, cw)}
 
-  <!-- BIO -->
-  ${sectionLabel(cx, 120, "TALE")}
-  <rect x="${cx}" y="134" width="${cw}" height="68" rx="8" fill="${palette.sectionBg}" fill-opacity="0.6" stroke="${palette.border}" stroke-opacity="0.18" stroke-width="1"/>
-  <text x="${cx + 16}" y="160" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="18">${safeBio}</text>
+  <!-- BIO (TALE) -->
+  ${sectionLabel(cx, 124, "TALE")}
+  <rect x="${cx}" y="138" width="${cw}" height="${Math.max(56, bioLines.length * 24 + 24)}" rx="8" fill="${palette.sectionBg}" fill-opacity="0.6" stroke="${palette.border}" stroke-opacity="0.18" stroke-width="1"/>
+  <text x="${cx + 16}" y="162" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="17">
+    ${safeBioLines.map((line, i) => `<tspan x="${cx + 16}" dy="${i === 0 ? 0 : 22}">${line}</tspan>`).join("")}
+  </text>
 
-  <!-- PERSONALITY -->
-  ${sectionLabel(cx, 224, "TEMPERAMENT")}
-  <rect x="${cx}" y="238" width="${cw}" height="68" rx="8" fill="${palette.sectionBg}" fill-opacity="0.5" stroke="${palette.border}" stroke-opacity="0.14" stroke-width="1"/>
-  <text x="${cx + 16}" y="264" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="18">${safePersonality}</text>
+  <!-- PERSONALITY (TEMPERAMENT) -->
+  ${sectionLabel(cx, 138 + Math.max(56, bioLines.length * 24 + 24) + 22, "TEMPERAMENT")}
+  <rect x="${cx}" y="${138 + Math.max(56, bioLines.length * 24 + 24) + 36}" width="${cw}" height="${Math.max(56, personalityLines.length * 24 + 24)}" rx="8" fill="${palette.sectionBg}" fill-opacity="0.5" stroke="${palette.border}" stroke-opacity="0.14" stroke-width="1"/>
+  <text x="${cx + 16}" y="${138 + Math.max(56, bioLines.length * 24 + 24) + 60}" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="17">
+    ${safePersonalityLines.map((line, i) => `<tspan x="${cx + 16}" dy="${i === 0 ? 0 : 22}">${line}</tspan>`).join("")}
+  </text>
 
-  <!-- BACKSTORY -->
-  ${sectionLabel(cx, 328, "ORIGINS")}
-  <rect x="${cx}" y="342" width="${cw}" height="100" rx="8" fill="${palette.sectionBg}" fill-opacity="0.4" stroke="${palette.border}" stroke-opacity="0.12" stroke-width="1"/>
-  <text x="${cx + 16}" y="370" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="17">${safeBackstory}</text>
+  <!-- BACKSTORY (ORIGINS) -->
+  ${(() => {
+    const originsLabelY = 138 + Math.max(56, bioLines.length * 24 + 24) + 36 + Math.max(56, personalityLines.length * 24 + 24) + 22;
+    const originsBoxY = originsLabelY + 14;
+    const remainingHeight = Math.max(80, 590 - originsBoxY);
+    return `
+  ${sectionLabel(cx, originsLabelY, "ORIGINS")}
+  <rect x="${cx}" y="${originsBoxY}" width="${cw}" height="${remainingHeight}" rx="8" fill="${palette.sectionBg}" fill-opacity="0.4" stroke="${palette.border}" stroke-opacity="0.12" stroke-width="1"/>
+  <text x="${cx + 16}" y="${originsBoxY + 24}" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="17">
+    ${safeBackstoryLines.map((line, i) => `<tspan x="${cx + 16}" dy="${i === 0 ? 0 : 22}">${line}</tspan>`).join("")}
+  </text>`;
+  })()}
 
   <!-- Bottom flourish -->
-  <text x="600" y="648" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="13" font-style="italic" fill-opacity="0.5">~ written in the annals of Crazyland ~</text>
+  <line x1="400" y1="630" x2="560" y2="630" stroke="${accent}" stroke-opacity="0.15" stroke-width="1"/>
+  <text x="600" y="635" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="12" font-style="italic" fill-opacity="0.45">~ written in the annals of Crazyland ~</text>
+  <line x1="640" y1="630" x2="800" y2="630" stroke="${accent}" stroke-opacity="0.15" stroke-width="1"/>
 </svg>`;
 
   // Load avatar from character URL only
@@ -4943,7 +5000,7 @@ async function generateCharacterCardImage(character, options = {}) {
       .toBuffer();
 
     return base
-      .composite([{ input: roundedAvatar, left: 65, top: 75, blend: "over" }])
+      .composite([{ input: roundedAvatar, left: 64, top: 66, blend: "over" }])
       .toBuffer();
   } catch (error) {
     console.log("Character card avatar processing failed:", error.message);
