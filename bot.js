@@ -5964,44 +5964,41 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (subcommand === "profile") {
+          // Defer IMMEDIATELY to avoid Discord's 3-second interaction timeout.
+          if (!interaction.deferred && !interaction.replied) {
+            try {
+              await interaction.deferReply();
+            } catch (deferError) {
+              // 40060 = already acknowledged (auto-ack guard race), 10062 = interaction expired
+              if (deferError?.code !== 40060 && deferError?.code !== 10062) {
+                throw deferError;
+              }
+              if (deferError?.code === 10062) {
+                console.error("Profile: interaction expired before deferReply, cannot respond.");
+                return;
+              }
+            }
+          }
+
           const characterId = interaction.options.getString("character", true);
           const theme = interaction.options.getString("theme", false) || "arcane";
           const accentInput = interaction.options.getString("accent", false) || "";
           const showBackstory = interaction.options.getBoolean("show_backstory", false) || false;
 
           if (accentInput && !/^#?[0-9a-fA-F]{6}$/.test(accentInput.trim())) {
-            await replyComponentsV2(
-              interaction,
-              "Invalid Accent Color",
-              ["Accent must be a 6-digit HEX color like `#54C0FF` or `54C0FF`."],
-              [],
-              { ephemeral: true }
-            );
+            await interaction.editReply({
+              content: "Accent must be a 6-digit HEX color like `#54C0FF` or `54C0FF`."
+            });
             return;
           }
 
           const character = getCharacterById(characterId, interaction.guildId);
 
           if (!character) {
-            await replyComponentsV2(
-              interaction,
-              "View Profile",
-              [`Character with ID "${characterId}" does not exist.`],
-              [],
-              { ephemeral: true }
-            );
+            await interaction.editReply({
+              content: `Character with ID "${characterId}" does not exist.`
+            });
             return;
-          }
-
-          if (!interaction.deferred && !interaction.replied) {
-            try {
-              await interaction.deferReply();
-            } catch (deferError) {
-              // If already acknowledged elsewhere (auto-ack guard race), continue with editReply path.
-              if (deferError?.code !== 40060) {
-                throw deferError;
-              }
-            }
           }
 
           const ownerId = getAssignedUserId(interaction.guildId, character.id);
@@ -6020,28 +6017,34 @@ client.on("interactionCreate", async (interaction) => {
             : false;
 
           const characterPointsValue = getCharacterPoints(interaction.guildId, character.id);
-          const [cardPageOneBuffer, cardPageTwoBuffer] = await Promise.all([
-            generateCharacterCardImage(character, {
-              theme,
-              accentColor: accentInput,
-              showBackstory,
-              ownerDisplay,
-              pickedByDisplay: ownerDisplay,
-              isPicked,
-              points: characterPointsValue,
-              page: 1
-            }),
-            generateCharacterCardImage(character, {
-              theme,
-              accentColor: accentInput,
-              showBackstory,
-              ownerDisplay,
-              pickedByDisplay: ownerDisplay,
-              isPicked,
-              points: characterPointsValue,
-              page: 2
-            })
-          ]);
+          let cardPageOneBuffer = null;
+          let cardPageTwoBuffer = null;
+          try {
+            [cardPageOneBuffer, cardPageTwoBuffer] = await Promise.all([
+              generateCharacterCardImage(character, {
+                theme,
+                accentColor: accentInput,
+                showBackstory,
+                ownerDisplay,
+                pickedByDisplay: ownerDisplay,
+                isPicked,
+                points: characterPointsValue,
+                page: 1
+              }).catch((err) => { console.error("Profile card page 1 failed:", err.message); return null; }),
+              generateCharacterCardImage(character, {
+                theme,
+                accentColor: accentInput,
+                showBackstory,
+                ownerDisplay,
+                pickedByDisplay: ownerDisplay,
+                isPicked,
+                points: characterPointsValue,
+                page: 2
+              }).catch((err) => { console.error("Profile card page 2 failed:", err.message); return null; })
+            ]);
+          } catch (cardError) {
+            console.error("Profile card generation failed:", cardError);
+          }
 
           if (cardPageOneBuffer || cardPageTwoBuffer) {
             const files = [];
@@ -10753,6 +10756,10 @@ client.on("interactionCreate", async (interaction) => {
   } catch (error) {
     console.error("Interaction error:", error);
     try {
+      if (interaction.isAutocomplete?.()) {
+        // Autocomplete interactions cannot be replied to — just log and bail
+        return;
+      }
       if (!interaction.replied && !interaction.deferred) {
         await replyComponentsV2(
           interaction,
