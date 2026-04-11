@@ -954,6 +954,38 @@ function escapeRegex(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function escapeSvgText(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function clampText(value, maxLength) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "";
+  }
+  if (raw.length <= maxLength) {
+    return raw;
+  }
+  return `${raw.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
+}
+
+function normalizeHexColor(value, fallback) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return fallback;
+  }
+  const normalized = raw.startsWith("#") ? raw : `#${raw}`;
+  if (!/^#[0-9a-fA-F]{6}$/.test(normalized)) {
+    return fallback;
+  }
+  return normalized.toUpperCase();
+}
+
 function getCachedWebhookEntryById(channelId, webhookId) {
   const channelEntries = webhooks[channelId];
   if (!channelEntries || typeof channelEntries !== "object") {
@@ -3853,13 +3885,38 @@ async function registerCommands() {
     .addSubcommand((subcommand) =>
       subcommand
         .setName("profile")
-        .setDescription("View character profile")
+        .setDescription("View character profile and dynamic visual card")
         .addStringOption((option) =>
           option
             .setName("character")
             .setDescription("Character to view")
             .setRequired(true)
             .setAutocomplete(true)
+        )
+        .addStringOption((option) =>
+          option
+            .setName("theme")
+            .setDescription("Card theme style")
+            .setRequired(false)
+            .addChoices(
+              { name: "Arcane", value: "arcane" },
+              { name: "Ember", value: "ember" },
+              { name: "Verdant", value: "verdant" },
+              { name: "Frost", value: "frost" }
+            )
+        )
+        .addStringOption((option) =>
+          option
+            .setName("accent")
+            .setDescription("Custom accent color in HEX (example: #54C0FF)")
+            .setRequired(false)
+            .setMaxLength(7)
+        )
+        .addBooleanOption((option) =>
+          option
+            .setName("show_backstory")
+            .setDescription("Show backstory text on the card")
+            .setRequired(false)
         )
     )
     .addSubcommand((subcommand) =>
@@ -4645,6 +4702,204 @@ async function generateProfileImage(character) {
   } catch (error) {
     console.error("Error generating profile image:", error.message);
     return null;
+  }
+}
+
+async function generateCharacterCardImage(character, options = {}) {
+  const themePresets = {
+    arcane: {
+      bgA: "#0B1026",
+      bgB: "#111D44",
+      bgC: "#2A3D78",
+      panel: "#0A142DCC",
+      textPrimary: "#EAF4FF",
+      textMuted: "#A8C0E6",
+      accent: "#54C0FF"
+    },
+    ember: {
+      bgA: "#190B08",
+      bgB: "#3B1510",
+      bgC: "#6D2313",
+      panel: "#2A100BDD",
+      textPrimary: "#FFF3EB",
+      textMuted: "#F1C4AE",
+      accent: "#FF8A3D"
+    },
+    verdant: {
+      bgA: "#081C16",
+      bgB: "#11362B",
+      bgC: "#1F5A45",
+      panel: "#0B221ADD",
+      textPrimary: "#EDFFF5",
+      textMuted: "#B7E7D2",
+      accent: "#4FD7A3"
+    },
+    frost: {
+      bgA: "#081420",
+      bgB: "#123049",
+      bgC: "#1E4F70",
+      panel: "#0B1F33DD",
+      textPrimary: "#F1FBFF",
+      textMuted: "#B9DBEC",
+      accent: "#6DD3FF"
+    }
+  };
+
+  const width = 1200;
+  const height = 675;
+  const avatarSize = 220;
+  const themeKey = String(options.theme || "arcane").toLowerCase();
+  const palette = themePresets[themeKey] || themePresets.arcane;
+  const accent = normalizeHexColor(options.accentColor, palette.accent);
+
+  const points = normalizePoints(options.points);
+  const level = Math.max(1, Math.floor(points / 100) + 1);
+  const levelXp = Math.floor(points % 100);
+  const progressRatio = Math.max(0, Math.min(1, levelXp / 100));
+  const progressPercent = Math.round(progressRatio * 100);
+
+  const ownerDisplay = clampText(options.ownerDisplay || "Unassigned", 30) || "Unassigned";
+  const pickedByDisplay = clampText(options.pickedByDisplay || ownerDisplay, 30) || ownerDisplay;
+  const isPicked = Boolean(options.isPicked);
+  const name = clampText(character.name || character.id, 38) || "Unknown Character";
+  const bio = clampText(character.bio, 120) || "No bio set yet.";
+  const personality = clampText(character.personality, 90) || "Unknown";
+  const race = clampText(character.race, 32) || "Unknown";
+  const className = clampText(character.class, 32) || "Unknown";
+  const relationshipRaw = clampText(character.relationship, 24);
+  const relationship = relationshipRaw
+    ? `${relationshipRaw.charAt(0).toUpperCase()}${relationshipRaw.slice(1).toLowerCase()}`
+    : "Neutral";
+  const age = character.age ? clampText(String(character.age), 16) : "Unknown";
+  const backstory = clampText(character.backstory, 200) || "No backstory yet.";
+
+  const safeName = escapeSvgText(name);
+  const safeBio = escapeSvgText(bio);
+  const safePersonality = escapeSvgText(personality);
+  const safeRace = escapeSvgText(race);
+  const safeClass = escapeSvgText(className);
+  const safeRelationship = escapeSvgText(relationship);
+  const safeAge = escapeSvgText(age);
+  const safeBackstory = escapeSvgText(backstory);
+  const safeOwner = escapeSvgText(ownerDisplay);
+  const safePickedBy = escapeSvgText(pickedByDisplay);
+  const safeCharacterId = escapeSvgText(character.id || "unknown");
+  const safePoints = escapeSvgText(formatPoints(points));
+
+  const xpWidth = 430;
+  const xpFilledWidth = Math.max(10, Math.round(xpWidth * progressRatio));
+
+  const svg = `
+<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="${palette.bgA}"/>
+      <stop offset="55%" stop-color="${palette.bgB}"/>
+      <stop offset="100%" stop-color="${palette.bgC}"/>
+    </linearGradient>
+    <linearGradient id="accentGlow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="${accent}" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.15"/>
+    </linearGradient>
+    <linearGradient id="xpFill" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="${accent}"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.85"/>
+    </linearGradient>
+    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="12" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect x="0" y="0" width="${width}" height="${height}" fill="url(#bg)"/>
+  <circle cx="980" cy="120" r="160" fill="${accent}" opacity="0.22" filter="url(#softGlow)"/>
+  <circle cx="140" cy="560" r="140" fill="${accent}" opacity="0.14"/>
+
+  <rect x="34" y="34" width="1132" height="607" rx="28" fill="${palette.panel}" stroke="${accent}" stroke-opacity="0.45"/>
+  <rect x="34" y="34" width="1132" height="8" fill="url(#accentGlow)" rx="28"/>
+
+  ${isPicked
+    ? `<g>
+    <rect x="914" y="56" width="220" height="52" rx="12" fill="${accent}"/>
+    <text x="1024" y="88" text-anchor="middle" fill="#0A0F1D" font-family="'Segoe UI', Arial, sans-serif" font-size="24" font-weight="700">PICKED</text>
+    <text x="1024" y="116" text-anchor="middle" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="14">by ${safePickedBy}</text>
+  </g>`
+    : ""}
+
+  <text x="300" y="112" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="22" letter-spacing="3">DYNAMIC CHARACTER CARD</text>
+  <text x="300" y="164" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="56" font-weight="700">${safeName}</text>
+
+  <text x="300" y="208" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="22">ID: ${safeCharacterId}  •  Owner: ${safeOwner}</text>
+  <text x="300" y="246" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="24">${safeBio}</text>
+
+  <rect x="300" y="274" width="500" height="108" rx="18" fill="#FFFFFF" fill-opacity="0.05"/>
+  <text x="322" y="316" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="20">PERSONALITY</text>
+  <text x="322" y="350" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="24">${safePersonality}</text>
+
+  <rect x="825" y="274" width="307" height="108" rx="18" fill="#FFFFFF" fill-opacity="0.05"/>
+  <text x="845" y="314" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="20">LEVEL</text>
+  <text x="845" y="352" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="48" font-weight="700">${level}</text>
+
+  <rect x="300" y="405" width="832" height="188" rx="22" fill="#FFFFFF" fill-opacity="0.045"/>
+  <text x="322" y="446" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="20">STATS</text>
+  <text x="322" y="482" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="24">Race: ${safeRace}</text>
+  <text x="322" y="518" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="24">Class: ${safeClass}</text>
+  <text x="322" y="554" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="24">Relationship: ${safeRelationship}</text>
+  <text x="322" y="590" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="24">Age: ${safeAge}</text>
+
+  <text x="660" y="482" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="20">CHARACTER POINTS</text>
+  <text x="660" y="516" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="34" font-weight="700">${safePoints}</text>
+  <text x="660" y="552" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="18">XP ${levelXp}/100 (${progressPercent}%)</text>
+
+  <rect x="660" y="565" width="${xpWidth}" height="18" rx="9" fill="#FFFFFF" fill-opacity="0.18"/>
+  <rect x="660" y="565" width="${xpFilledWidth}" height="18" rx="9" fill="url(#xpFill)"/>
+
+  ${options.showBackstory
+    ? `<text x="660" y="602" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="18">BACKSTORY</text>
+  <text x="660" y="628" fill="${palette.textPrimary}" font-family="'Segoe UI', Arial, sans-serif" font-size="18">${safeBackstory}</text>`
+    : ""}
+
+  <rect x="60" y="90" width="246" height="246" rx="42" fill="#FFFFFF" fill-opacity="0.08" stroke="${accent}" stroke-opacity="0.65" stroke-width="3"/>
+  <text x="183" y="225" text-anchor="middle" fill="${palette.textMuted}" font-family="'Segoe UI', Arial, sans-serif" font-size="18">AVATAR</text>
+</svg>`;
+
+  const base = sharp(Buffer.from(svg)).png();
+
+  if (!character.avatarUrl) {
+    return base.toBuffer();
+  }
+
+  try {
+    const avatarResized = await sharp(character.avatarUrl)
+      .resize(avatarSize, avatarSize, { fit: "cover" })
+      .png()
+      .toBuffer();
+
+    const avatarMask = Buffer.from(
+      `<svg width="${avatarSize}" height="${avatarSize}" xmlns="http://www.w3.org/2000/svg"><rect width="${avatarSize}" height="${avatarSize}" rx="38" ry="38" fill="white"/></svg>`
+    );
+
+    const roundedAvatar = await sharp(avatarResized)
+      .composite([{ input: avatarMask, blend: "dest-in" }])
+      .png()
+      .toBuffer();
+
+    return base
+      .composite([
+        {
+          input: roundedAvatar,
+          left: 73,
+          top: 103,
+          blend: "over"
+        }
+      ])
+      .toBuffer();
+  } catch (error) {
+    console.log("Character card avatar processing failed:", error.message);
+    return base.toBuffer();
   }
 }
 
@@ -5687,6 +5942,21 @@ client.on("interactionCreate", async (interaction) => {
 
         if (subcommand === "profile") {
           const characterId = interaction.options.getString("character", true);
+          const theme = interaction.options.getString("theme", false) || "arcane";
+          const accentInput = interaction.options.getString("accent", false) || "";
+          const showBackstory = interaction.options.getBoolean("show_backstory", false) || false;
+
+          if (accentInput && !/^#?[0-9a-fA-F]{6}$/.test(accentInput.trim())) {
+            await replyComponentsV2(
+              interaction,
+              "Invalid Accent Color",
+              ["Accent must be a 6-digit HEX color like `#54C0FF` or `54C0FF`."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
           const character = getCharacterById(characterId, interaction.guildId);
 
           if (!character) {
@@ -5700,10 +5970,57 @@ client.on("interactionCreate", async (interaction) => {
             return;
           }
 
+          const ownerId = getAssignedUserId(interaction.guildId, character.id);
+          let ownerDisplay = "Unassigned";
+          if (ownerId) {
+            try {
+              const ownerMember = await interaction.guild.members.fetch(ownerId);
+              ownerDisplay = ownerMember?.displayName || ownerMember?.user?.username || ownerId;
+            } catch (error) {
+              ownerDisplay = ownerId;
+            }
+          }
+
+          const isPicked = ownerId
+            ? getSelectedCharacterId(interaction.guildId, ownerId) === character.id
+            : false;
+
+          const cardBuffer = await generateCharacterCardImage(character, {
+            theme,
+            accentColor: accentInput,
+            showBackstory,
+            ownerDisplay,
+            pickedByDisplay: ownerDisplay,
+            isPicked,
+            points: getCharacterPoints(interaction.guildId, character.id)
+          });
+
+          if (cardBuffer) {
+            const detailLines = [
+              character.bio ? `${BULLET_EMOJI_RAW} **Bio:** ${character.bio}` : "",
+              character.personality ? `${BULLET_EMOJI_RAW} **Personality:** ${character.personality}` : "",
+              character.backstory ? `${BULLET_EMOJI_RAW} **Backstory:** ${character.backstory}` : "",
+              character.age ? `${BULLET_EMOJI_RAW} **Age:** ${character.age}` : "",
+              character.race ? `${BULLET_EMOJI_RAW} **Race/Species:** ${character.race}` : "",
+              character.class ? `${BULLET_EMOJI_RAW} **Class:** ${character.class}` : "",
+              character.relationship ? `${BULLET_EMOJI_RAW} **Status:** ${character.relationship}` : "",
+              isPicked ? `${BULLET_EMOJI_RAW} **Picked:** Yes` : "",
+              `${BULLET_EMOJI_RAW} **Theme:** ${theme}`
+            ].filter((line) => line);
+
+            await interaction.reply({
+              content: `## ${character.name}\n${detailLines.join("\n")}`,
+              files: [{ attachment: cardBuffer, name: `character-profile-${character.id}.png` }],
+              allowedMentions: { parse: [] }
+            });
+            return;
+          }
+
           await replyComponentsV2(
             interaction,
             character.name,
             [
+              "Could not generate profile card image right now. Showing text details instead.",
               character.bio ? `${BULLET_EMOJI_RAW} **Bio:** ${character.bio}` : "",
               character.personality ? `${BULLET_EMOJI_RAW} **Personality:** ${character.personality}` : "",
               character.backstory ? `${BULLET_EMOJI_RAW} **Backstory:** ${character.backstory}` : "",
@@ -5711,9 +6028,10 @@ client.on("interactionCreate", async (interaction) => {
               character.race ? `${BULLET_EMOJI_RAW} **Race/Species:** ${character.race}` : "",
               character.class ? `${BULLET_EMOJI_RAW} **Class:** ${character.class}` : "",
               character.relationship ? `${BULLET_EMOJI_RAW} **Status:** ${character.relationship}` : ""
-            ].filter(line => line),
+            ].filter((line) => line),
             []
           );
+          return;
         }
 
         if (subcommand === "delete") {
