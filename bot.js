@@ -11328,6 +11328,7 @@ client.on("interactionCreate", async (interaction) => {
           ];
 
           await logsChannel.send({
+            flags: 32768,
             components: [{ type: 17, components: reportComponents }],
             allowedMentions: { roles: adminRoleIds }
           });
