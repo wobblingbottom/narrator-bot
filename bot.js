@@ -5318,8 +5318,8 @@ function updateServerCountPresence() {
     client.user.setPresence({
       activities: [
         {
-          name: `${guildCount} server${suffix}`,
-          type: ActivityType.Watching
+          name: `Narrating ${guildCount} server${suffix}`,
+          type: ActivityType.Custom
         }
       ],
       status: "online"
