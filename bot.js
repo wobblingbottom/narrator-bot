@@ -11336,7 +11336,15 @@ client.on("interactionCreate", async (interaction) => {
             { type: 10, content: `${BULLET_EMOJI_RAW} **Owner:** ${ownerId ? `<@${ownerId}>` : "Unassigned"}` },
             { type: 10, content: `${BULLET_EMOJI_RAW} **Reported by:** <@${interaction.user.id}>` },
             { type: 14, divider: true, spacing: 1 },
-            { type: 10, content: rolePings }
+            { type: 10, content: rolePings },
+            { type: 14, divider: true, spacing: 1 },
+            {
+              type: 1,
+              components: [
+                { type: 2, style: 1, label: "View Profile", custom_id: `rpt_view_${characterId}` },
+                { type: 2, style: 4, label: "Delete Character", custom_id: `rpt_del_${characterId}` }
+              ]
+            }
           ];
 
           await logsChannel.send({
@@ -11347,6 +11355,104 @@ client.on("interactionCreate", async (interaction) => {
         } catch (logError) {
           console.error("Failed to send report to logs channel:", logError);
         }
+        return;
+      }
+
+      if (interaction.customId.startsWith("rpt_view_")) {
+        const characterId = interaction.customId.replace("rpt_view_", "");
+        const character = getCharacterById(characterId, interaction.guildId);
+
+        if (!character) {
+          await interaction.reply({ content: `Character \`${characterId}\` no longer exists.`, flags: 64 });
+          return;
+        }
+
+        try {
+          const ownerId = getAssignedUserId(interaction.guildId, character.id);
+          let ownerDisplay = "Unassigned";
+          if (ownerId) {
+            try {
+              const ownerMember = await interaction.guild.members.fetch(ownerId);
+              ownerDisplay = ownerMember?.displayName || ownerMember?.user?.username || ownerId;
+            } catch (e) { ownerDisplay = ownerId; }
+          }
+          const isPicked = ownerId ? getSelectedCharacterId(interaction.guildId, ownerId) === character.id : false;
+          const characterPointsValue = getCharacterPoints(interaction.guildId, character.id);
+          const theme = character.cardTheme || "arcane";
+          const accentColor = character.cardAccent || "";
+          const cardBackground = character.cardBackground || "";
+          const hasPremium = ownerId ? getPremiumSlotBonus(interaction.guildId, ownerId) > 0 : false;
+          const upgradeIds = getCharacterUpgradeIds(interaction.guildId, character.id);
+          const selectedTitleObj = getSelectedTitle(interaction.guildId, character.id);
+
+          const cardBuffer = await generateCharacterCardImage(character, {
+            theme, accentColor, ownerDisplay, pickedByDisplay: ownerDisplay, isPicked,
+            points: characterPointsValue,
+            backgroundUrl: hasPremium ? cardBackground : "",
+            upgradeIds,
+            titleName: selectedTitleObj ? selectedTitleObj.name : ""
+          });
+
+          if (cardBuffer) {
+            await interaction.reply({
+              content: `**${character.name}** • Profile (from report)`,
+              files: [{ attachment: cardBuffer, name: `character-profile-${character.id}.png` }],
+              flags: 64
+            });
+            return;
+          }
+        } catch (err) {
+          console.error("Report view profile failed:", err);
+        }
+
+        await interaction.reply({ content: `Could not generate profile for \`${characterId}\`.`, flags: 64 });
+        return;
+      }
+
+      if (interaction.customId.startsWith("rpt_del_")) {
+        const characterId = interaction.customId.replace("rpt_del_", "");
+        const character = getCharacterById(characterId, interaction.guildId);
+
+        if (!character) {
+          await interaction.reply({ content: `Character \`${characterId}\` no longer exists.`, flags: 64 });
+          return;
+        }
+
+        await interaction.reply({
+          content: `Are you sure you want to delete **${character.name}** (\`${characterId}\`)? This cannot be undone.`,
+          components: [{
+            type: 1,
+            components: [
+              { type: 2, style: 4, label: "Confirm Delete", custom_id: `rpt_delconfirm_${characterId}` },
+              { type: 2, style: 2, label: "Cancel", custom_id: "rpt_delcancel" }
+            ]
+          }],
+          flags: 64
+        });
+        return;
+      }
+
+      if (interaction.customId === "rpt_delcancel") {
+        await interaction.update({ content: "Deletion cancelled.", components: [] });
+        return;
+      }
+
+      if (interaction.customId.startsWith("rpt_delconfirm_")) {
+        const characterId = interaction.customId.replace("rpt_delconfirm_", "");
+        const character = getCharacterById(characterId, interaction.guildId);
+
+        if (!character) {
+          await interaction.update({ content: `Character \`${characterId}\` no longer exists.`, components: [] });
+          return;
+        }
+
+        const charName = character.name;
+        deleteCharacterFromGuild(interaction.guildId, characterId);
+
+        await interaction.update({
+          content: `${SUCCESSFUL_EMOJI_RAW} Character **${charName}** (\`${characterId}\`) has been deleted.`,
+          components: []
+        });
         return;
       }
 
