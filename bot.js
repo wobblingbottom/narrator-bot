@@ -6397,15 +6397,12 @@ client.on("interactionCreate", async (interaction) => {
               content: `**${character.name}** • Character Profile`,
               files: [{ attachment: cardBuffer, name: `character-profile-${character.id}.png` }],
               components: [{
-                type: 17,
+                type: 1,
                 components: [{
-                  type: 1,
-                  components: [{
-                    type: 2,
-                    style: 4,
-                    label: "Report",
-                    custom_id: `report_character_${character.id}`
-                  }]
+                  type: 2,
+                  style: 4,
+                  label: "Report",
+                  custom_id: `report_character_${character.id}`
                 }]
               }]
             });
@@ -11286,16 +11283,13 @@ client.on("interactionCreate", async (interaction) => {
         try {
           await interaction.update({
             components: [{
-              type: 17,
+              type: 1,
               components: [{
-                type: 1,
-                components: [{
-                  type: 2,
-                  style: 2,
-                  label: "Report sent",
-                  custom_id: `report_character_${characterId}`,
-                  disabled: true
-                }]
+                type: 2,
+                style: 2,
+                label: "Report sent",
+                custom_id: `report_character_${characterId}`,
+                disabled: true
               }]
             }]
           });
