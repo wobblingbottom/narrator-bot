@@ -4757,38 +4757,30 @@ async function generateProfileImage(character) {
 
 async function generateCharacterCardImage(character, options = {}) {
   const themePresets = {
-    arcane:  { bgA: "#0D0A1A", bgB: "#1A1030", bgC: "#2D1B4E", panel: "#0E0A1ACC", border: "#3D2A6E", textPrimary: "#E8D5FF", textMuted: "#9B7FC7", accent: "#B76EFF", labelBg: "#1F1438", sectionBg: "#170F28" },
-    ember:   { bgA: "#1A0A08", bgB: "#2E1410", bgC: "#4A1A10", panel: "#1C0C08CC", border: "#6E2A1A", textPrimary: "#FFE0CC", textMuted: "#C48A6E", accent: "#FF6B2E", labelBg: "#2A1410", sectionBg: "#221210" },
-    verdant: { bgA: "#0A1A10", bgB: "#102E1A", bgC: "#1A4A2A", panel: "#0C1C0ECC", border: "#2A6E3A", textPrimary: "#D5FFE0", textMuted: "#7FC78A", accent: "#4EBB6E", labelBg: "#14261A", sectionBg: "#0F2214" },
-    frost:   { bgA: "#080E1A", bgB: "#10203A", bgC: "#1A3652", panel: "#0A1420CC", border: "#2A4A6E", textPrimary: "#D5EEFF", textMuted: "#7FAEC7", accent: "#4EA8D7", labelBg: "#142030", sectionBg: "#0F1A28" }
+    arcane:  { bgA: "#0D0A1A", bgB: "#1A1030", bgC: "#2D1B4E", panel: "#0E0A1ACC", border: "#3D2A6E", textPrimary: "#E8D5FF", textMuted: "#9B7FC7", accent: "#B76EFF", sectionBg: "#170F28" },
+    ember:   { bgA: "#1A0A08", bgB: "#2E1410", bgC: "#4A1A10", panel: "#1C0C08CC", border: "#6E2A1A", textPrimary: "#FFE0CC", textMuted: "#C48A6E", accent: "#FF6B2E", sectionBg: "#221210" },
+    verdant: { bgA: "#0A1A10", bgB: "#102E1A", bgC: "#1A4A2A", panel: "#0C1C0ECC", border: "#2A6E3A", textPrimary: "#D5FFE0", textMuted: "#7FC78A", accent: "#4EBB6E", sectionBg: "#0F2214" },
+    frost:   { bgA: "#080E1A", bgB: "#10203A", bgC: "#1A3652", panel: "#0A1420CC", border: "#2A4A6E", textPrimary: "#D5EEFF", textMuted: "#7FAEC7", accent: "#4EA8D7", sectionBg: "#0F1A28" }
   };
 
   const width = 1200;
   const height = 675;
-  const avatarSize = 200;
-  const page = Number(options.page) === 2 ? 2 : 1;
+  const avatarSize = 180;
   const themeKey = String(options.theme || "arcane").toLowerCase();
   const palette = themePresets[themeKey] || themePresets.arcane;
   const accent = normalizeHexColor(options.accentColor, palette.accent);
 
-  const points = normalizePoints(options.points);
-  const level = Math.max(1, Math.floor(points / 100) + 1);
-  const levelXp = Math.floor(points % 100);
-  const progressRatio = Math.max(0, Math.min(1, levelXp / 100));
-  const progressPercent = Math.round(progressRatio * 100);
-
-  const ownerDisplay = clampText(options.ownerDisplay || "Unassigned", 30) || "Unassigned";
-  const pickedByDisplay = clampText(options.pickedByDisplay || ownerDisplay, 30) || ownerDisplay;
+  const pickedByDisplay = clampText(options.pickedByDisplay || options.ownerDisplay || "???", 30);
   const isPicked = Boolean(options.isPicked);
   const name = clampText(character.name || character.id, 36) || "Unknown Character";
-  const bio = clampText(character.bio, page === 1 ? 120 : 200) || "No bio set yet.";
-  const personality = clampText(character.personality, page === 1 ? 130 : 200) || "Unknown";
+  const bio = clampText(character.bio, 100) || "No bio set yet.";
+  const personality = clampText(character.personality, 90) || "Unknown";
   const race = clampText(character.race, 30) || "Unknown";
   const className = clampText(character.class, 30) || "Unknown";
   const relationshipRaw = clampText(character.relationship, 24);
   const relationship = relationshipRaw ? `${relationshipRaw.charAt(0).toUpperCase()}${relationshipRaw.slice(1).toLowerCase()}` : "Neutral";
   const age = character.age ? clampText(String(character.age), 16) : "Unknown";
-  const backstory = clampText(character.backstory, options.showBackstory ? 260 : 140) || "No backstory yet.";
+  const backstory = clampText(character.backstory, 160) || "No backstory yet.";
 
   const safeName = escapeSvgText(name);
   const safeBio = escapeSvgText(bio);
@@ -4798,13 +4790,9 @@ async function generateCharacterCardImage(character, options = {}) {
   const safeRelationship = escapeSvgText(relationship);
   const safeAge = escapeSvgText(age);
   const safeBackstory = escapeSvgText(backstory);
-  const safeOwner = escapeSvgText(ownerDisplay);
   const safePickedBy = escapeSvgText(pickedByDisplay);
-  const safeCharacterId = escapeSvgText(character.id || "unknown");
-  const safePoints = escapeSvgText(formatPoints(points));
-  const safeThemeName = escapeSvgText(themeKey);
 
-  // Decorative corner ornaments (medieval flourish)
+  // Decorative corner ornaments
   const cornerOrnament = (cx, cy, rot) => `
     <g transform="translate(${cx},${cy}) rotate(${rot})">
       <path d="M0,0 Q12,-18 30,-22 Q18,-8 22,0 Z" fill="${accent}" fill-opacity="0.35"/>
@@ -4814,91 +4802,17 @@ async function generateCharacterCardImage(character, options = {}) {
 
   // Section label with medieval bracket style
   const sectionLabel = (x, y, label) => `
-    <line x1="${x}" y1="${y}" x2="${x + 18}" y2="${y}" stroke="${accent}" stroke-opacity="0.5" stroke-width="1.5"/>
-    <text x="${x + 24}" y="${y + 5}" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="14" letter-spacing="3" font-style="italic">${label}</text>
-    <line x1="${x + 24 + label.length * 9}" y1="${y}" x2="${x + 24 + label.length * 9 + 18}" y2="${y}" stroke="${accent}" stroke-opacity="0.5" stroke-width="1.5"/>`;
+    <line x1="${x}" y1="${y}" x2="${x + 14}" y2="${y}" stroke="${accent}" stroke-opacity="0.5" stroke-width="1.5"/>
+    <text x="${x + 18}" y="${y + 4}" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="12" letter-spacing="2.5" font-style="italic">${label}</text>
+    <line x1="${x + 18 + label.length * 8.5}" y1="${y}" x2="${x + 18 + label.length * 8.5 + 14}" y2="${y}" stroke="${accent}" stroke-opacity="0.5" stroke-width="1.5"/>`;
 
-  // Divider line
   const divider = (x, y, w) => `
     <line x1="${x}" y1="${y}" x2="${x + w}" y2="${y}" stroke="${accent}" stroke-opacity="0.18" stroke-width="1"/>
-    <circle cx="${x + w / 2}" cy="${y}" r="3" fill="${accent}" fill-opacity="0.3"/>`;
+    <circle cx="${x + w / 2}" cy="${y}" r="2.5" fill="${accent}" fill-opacity="0.3"/>`;
 
-  const pageBody = page === 1
-    ? `
-  <!-- Page header -->
-  <text x="310" y="80" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="14" letter-spacing="4" font-style="italic">~ CHRONICLE I ~</text>
-
-  <!-- Character name -->
-  <text x="310" y="138" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="52" font-weight="700" letter-spacing="1">${safeName}</text>
-  ${divider(310, 154, 840)}
-
-  <!-- Class / Race / Level row -->
-  <text x="310" y="186" fill="${accent}" font-family="Georgia, 'Times New Roman', serif" font-size="22" font-style="italic">${safeClass}</text>
-  <text x="${310 + className.length * 12 + 16}" y="186" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="18">of the</text>
-  <text x="${310 + className.length * 12 + 60}" y="186" fill="${accent}" font-family="Georgia, 'Times New Roman', serif" font-size="22" font-style="italic">${safeRace}</text>
-  <text x="1090" y="186" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="20" text-anchor="end">Level ${level}</text>
-
-  <!-- Bio section -->
-  ${sectionLabel(310, 224, "TALE")}
-  <rect x="310" y="240" width="840" height="74" rx="8" fill="${palette.sectionBg}" fill-opacity="0.6" stroke="${palette.border}" stroke-opacity="0.2" stroke-width="1"/>
-  <text x="330" y="268" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="20">${safeBio}</text>
-
-  <!-- Personality + Core Stats row -->
-  <rect x="310" y="334" width="530" height="110" rx="8" fill="${palette.sectionBg}" fill-opacity="0.5" stroke="${palette.border}" stroke-opacity="0.15" stroke-width="1"/>
-  ${sectionLabel(330, 330, "TEMPERAMENT")}
-  <text x="330" y="384" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="21">${safePersonality}</text>
-
-  <rect x="860" y="334" width="290" height="110" rx="8" fill="${palette.sectionBg}" fill-opacity="0.5" stroke="${palette.border}" stroke-opacity="0.15" stroke-width="1"/>
-  ${sectionLabel(880, 330, "VITALS")}
-  <text x="880" y="380" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="16" font-style="italic">Age</text>
-  <text x="930" y="380" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="20">${safeAge}</text>
-  <text x="880" y="416" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="16" font-style="italic">Bond</text>
-  <text x="935" y="416" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="20">${safeRelationship}</text>
-
-  <!-- Backstory section -->
-  ${sectionLabel(310, 472, "ORIGINS")}
-  <rect x="310" y="488" width="840" height="130" rx="8" fill="${palette.sectionBg}" fill-opacity="0.4" stroke="${palette.border}" stroke-opacity="0.12" stroke-width="1"/>
-  <text x="330" y="522" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="19">${safeBackstory}</text>
-
-  <!-- Bottom flourish -->
-  <text x="600" y="648" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="13" font-style="italic" fill-opacity="0.5">~ written in the annals of Crazyland ~</text>
-`
-    : `
-  <!-- Page header -->
-  <text x="310" y="80" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="14" letter-spacing="4" font-style="italic">~ CHRONICLE II ~</text>
-
-  <!-- Character name -->
-  <text x="310" y="136" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="46" font-weight="700" letter-spacing="1">${safeName}</text>
-  <text x="310" y="164" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="16" font-style="italic">Known as ${safeCharacterId}  |  Keeper: ${safeOwner}  |  Sigil: ${safeThemeName}</text>
-  ${divider(310, 178, 840)}
-
-  <!-- Points & Progression -->
-  ${sectionLabel(310, 206, "RENOWN")}
-  <rect x="310" y="220" width="840" height="100" rx="8" fill="${palette.sectionBg}" fill-opacity="0.6" stroke="${palette.border}" stroke-opacity="0.2" stroke-width="1"/>
-  <text x="330" y="258" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="36" font-weight="700">${safePoints}</text>
-  <text x="${330 + String(formatPoints(points)).length * 20 + 10}" y="258" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="20" font-style="italic">glory points</text>
-  <text x="1100" y="258" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="18" text-anchor="end">Level ${level}  |  ${levelXp}/100 (${progressPercent}%)</text>
-  <rect x="330" y="278" width="770" height="16" rx="8" fill="#FFFFFF" fill-opacity="0.08" stroke="${palette.border}" stroke-opacity="0.15" stroke-width="1"/>
-  <rect x="330" y="278" width="${Math.max(12, Math.round(770 * progressRatio))}" height="16" rx="8" fill="url(#xpFill)"/>
-  <circle cx="${330 + Math.max(12, Math.round(770 * progressRatio))}" cy="286" r="6" fill="${accent}" fill-opacity="0.8"/>
-
-  <!-- Relationship + Personality row -->
-  <rect x="310" y="342" width="400" height="110" rx="8" fill="${palette.sectionBg}" fill-opacity="0.5" stroke="${palette.border}" stroke-opacity="0.15" stroke-width="1"/>
-  ${sectionLabel(330, 338, "ALLEGIANCE")}
-  <text x="330" y="400" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="26">${safeRelationship}</text>
-
-  <rect x="730" y="342" width="420" height="110" rx="8" fill="${palette.sectionBg}" fill-opacity="0.5" stroke="${palette.border}" stroke-opacity="0.15" stroke-width="1"/>
-  ${sectionLabel(750, 338, "TEMPERAMENT")}
-  <text x="750" y="400" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="22">${safePersonality}</text>
-
-  <!-- Full backstory -->
-  ${sectionLabel(310, 478, "THE FULL ACCOUNT")}
-  <rect x="310" y="492" width="840" height="120" rx="8" fill="${palette.sectionBg}" fill-opacity="0.4" stroke="${palette.border}" stroke-opacity="0.12" stroke-width="1"/>
-  <text x="330" y="526" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="19">${safeBackstory}</text>
-
-  <!-- Bottom flourish -->
-  <text x="600" y="648" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="13" font-style="italic" fill-opacity="0.5">~ the tale continues in the mists ~</text>
-`;
+  // Right-side content x start (after avatar column)
+  const cx = 300;
+  const cw = 850;
 
   const svg = `
 <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
@@ -4912,10 +4826,6 @@ async function generateCharacterCardImage(character, options = {}) {
       <stop offset="0%" stop-color="${accent}" stop-opacity="0.7"/>
       <stop offset="50%" stop-color="${accent}" stop-opacity="0.2"/>
       <stop offset="100%" stop-color="${accent}" stop-opacity="0"/>
-    </linearGradient>
-    <linearGradient id="xpFill" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="${accent}" stop-opacity="0.9"/>
-      <stop offset="100%" stop-color="${accent}" stop-opacity="0.3"/>
     </linearGradient>
     <radialGradient id="mist1" cx="0.2" cy="0.8" r="0.6">
       <stop offset="0%" stop-color="${accent}" stop-opacity="0.12"/>
@@ -4933,20 +4843,15 @@ async function generateCharacterCardImage(character, options = {}) {
 
   <!-- Background -->
   <rect x="0" y="0" width="${width}" height="${height}" fill="url(#bg)"/>
-
-  <!-- Eerie mist layers -->
   <rect x="0" y="0" width="${width}" height="${height}" fill="url(#mist1)"/>
   <rect x="0" y="0" width="${width}" height="${height}" fill="url(#mist2)"/>
 
-  <!-- Faint decorative circles (mystical orbs) -->
+  <!-- Mystical orbs -->
   <circle cx="100" cy="580" r="120" fill="${accent}" opacity="0.06"/>
   <circle cx="1050" cy="90" r="100" fill="${accent}" opacity="0.05"/>
-  <circle cx="600" cy="340" r="260" fill="${accent}" opacity="0.02"/>
 
-  <!-- Main parchment panel -->
+  <!-- Main panel -->
   <rect x="24" y="24" width="1152" height="627" rx="12" fill="${palette.panel}" stroke="${palette.border}" stroke-opacity="0.4" stroke-width="2"/>
-
-  <!-- Top accent line (gothic arch feel) -->
   <rect x="24" y="24" width="1152" height="4" rx="2" fill="url(#accentGlow)"/>
 
   <!-- Corner ornaments -->
@@ -4955,37 +4860,66 @@ async function generateCharacterCardImage(character, options = {}) {
   ${cornerOrnament(1160, 636, 180)}
   ${cornerOrnament(40, 636, 270)}
 
-  <!-- Inner border line -->
+  <!-- Inner border -->
   <rect x="40" y="40" width="1120" height="595" rx="6" fill="none" stroke="${palette.border}" stroke-opacity="0.12" stroke-width="1" stroke-dasharray="4,8"/>
 
   ${isPicked
     ? `<g filter="url(#glow)">
-    <rect x="940" y="46" width="200" height="40" rx="6" fill="${accent}" fill-opacity="0.9"/>
-    <text x="1040" y="73" text-anchor="middle" fill="${palette.bgA}" font-family="Georgia, 'Times New Roman', serif" font-size="18" font-weight="700" letter-spacing="3">CHOSEN</text>
+    <rect x="940" y="46" width="200" height="36" rx="6" fill="${accent}" fill-opacity="0.9"/>
+    <text x="1040" y="71" text-anchor="middle" fill="${palette.bgA}" font-family="Georgia, 'Times New Roman', serif" font-size="16" font-weight="700" letter-spacing="3">CHOSEN</text>
   </g>
-  <text x="1040" y="100" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="13" font-style="italic">by ${safePickedBy}</text>`
+  <text x="1040" y="96" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="12" font-style="italic">by ${safePickedBy}</text>`
     : ""}
 
-  <!-- Avatar frame (ornate) -->
-  <rect x="54" y="66" width="230" height="230" rx="10" fill="${palette.sectionBg}" stroke="${palette.border}" stroke-opacity="0.4" stroke-width="2"/>
-  <rect x="58" y="70" width="222" height="222" rx="8" fill="none" stroke="${accent}" stroke-opacity="0.15" stroke-width="1" stroke-dasharray="3,6"/>
-  <text x="169" y="188" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="14" font-style="italic" fill-opacity="0.4">No Portrait</text>
+  <!-- Avatar frame -->
+  <rect x="50" y="60" width="210" height="210" rx="10" fill="${palette.sectionBg}" stroke="${palette.border}" stroke-opacity="0.4" stroke-width="2"/>
+  <rect x="54" y="64" width="202" height="202" rx="8" fill="none" stroke="${accent}" stroke-opacity="0.15" stroke-width="1" stroke-dasharray="3,6"/>
+  <text x="155" y="172" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="13" font-style="italic" fill-opacity="0.4">No Portrait</text>
 
   <!-- Ornate diamond under avatar -->
-  <polygon points="169,310 180,324 169,338 158,324" fill="none" stroke="${accent}" stroke-opacity="0.3" stroke-width="1.5"/>
-  <circle cx="169" cy="324" r="3" fill="${accent}" fill-opacity="0.4"/>
+  <polygon points="155,284 164,296 155,308 146,296" fill="none" stroke="${accent}" stroke-opacity="0.3" stroke-width="1.5"/>
+  <circle cx="155" cy="296" r="2.5" fill="${accent}" fill-opacity="0.4"/>
 
-  ${pageBody}
+  <!-- Under-avatar info: class + race -->
+  <text x="155" y="332" text-anchor="middle" fill="${accent}" font-family="Georgia, 'Times New Roman', serif" font-size="16" font-style="italic">${safeClass}</text>
+  <text x="155" y="354" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="13">of the ${safeRace}</text>
+
+  <!-- Under-avatar vitals -->
+  <text x="80" y="396" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="13" font-style="italic">Age</text>
+  <text x="120" y="396" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="16">${safeAge}</text>
+  <text x="80" y="424" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="13" font-style="italic">Bond</text>
+  <text x="120" y="424" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="16">${safeRelationship}</text>
+
+  <!-- CHARACTER NAME -->
+  <text x="${cx}" y="82" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="48" font-weight="700" letter-spacing="1">${safeName}</text>
+  ${divider(cx, 96, cw)}
+
+  <!-- BIO -->
+  ${sectionLabel(cx, 120, "TALE")}
+  <rect x="${cx}" y="134" width="${cw}" height="68" rx="8" fill="${palette.sectionBg}" fill-opacity="0.6" stroke="${palette.border}" stroke-opacity="0.18" stroke-width="1"/>
+  <text x="${cx + 16}" y="160" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="18">${safeBio}</text>
+
+  <!-- PERSONALITY -->
+  ${sectionLabel(cx, 224, "TEMPERAMENT")}
+  <rect x="${cx}" y="238" width="${cw}" height="68" rx="8" fill="${palette.sectionBg}" fill-opacity="0.5" stroke="${palette.border}" stroke-opacity="0.14" stroke-width="1"/>
+  <text x="${cx + 16}" y="264" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="18">${safePersonality}</text>
+
+  <!-- BACKSTORY -->
+  ${sectionLabel(cx, 328, "ORIGINS")}
+  <rect x="${cx}" y="342" width="${cw}" height="100" rx="8" fill="${palette.sectionBg}" fill-opacity="0.4" stroke="${palette.border}" stroke-opacity="0.12" stroke-width="1"/>
+  <text x="${cx + 16}" y="370" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="17">${safeBackstory}</text>
+
+  <!-- Bottom flourish -->
+  <text x="600" y="648" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="13" font-style="italic" fill-opacity="0.5">~ written in the annals of Crazyland ~</text>
 </svg>`;
 
-  // Try to load avatar: character URL first, then owner's Discord avatar as fallback
+  // Load avatar from character URL only
   let avatarInput = null;
-  const avatarUrl = character.avatarUrl || options.ownerAvatarUrl;
-  if (avatarUrl) {
-    avatarInput = await loadImageBufferFromUrl(avatarUrl).catch(() => null);
-    if (!avatarInput && character.avatarUrl && options.ownerAvatarUrl && character.avatarUrl !== options.ownerAvatarUrl) {
-      avatarInput = await loadImageBufferFromUrl(options.ownerAvatarUrl).catch(() => null);
-    }
+  if (character.avatarUrl) {
+    avatarInput = await loadImageBufferFromUrl(character.avatarUrl).catch((err) => {
+      console.log("Avatar load failed:", err.message);
+      return null;
+    });
   }
 
   const base = sharp(Buffer.from(svg)).png();
@@ -5009,7 +4943,7 @@ async function generateCharacterCardImage(character, options = {}) {
       .toBuffer();
 
     return base
-      .composite([{ input: roundedAvatar, left: 69, top: 81, blend: "over" }])
+      .composite([{ input: roundedAvatar, left: 65, top: 75, blend: "over" }])
       .toBuffer();
   } catch (error) {
     console.log("Character card avatar processing failed:", error.message);
@@ -6074,7 +6008,6 @@ client.on("interactionCreate", async (interaction) => {
           const characterId = interaction.options.getString("character", true);
           const theme = interaction.options.getString("theme", false) || "arcane";
           const accentInput = interaction.options.getString("accent", false) || "";
-          const showBackstory = interaction.options.getBoolean("show_backstory", false) || false;
 
           if (accentInput && !/^#?[0-9a-fA-F]{6}$/.test(accentInput.trim())) {
             await interaction.editReply({
@@ -6094,12 +6027,10 @@ client.on("interactionCreate", async (interaction) => {
 
           const ownerId = getAssignedUserId(interaction.guildId, character.id);
           let ownerDisplay = "Unassigned";
-          let ownerAvatarUrl = null;
           if (ownerId) {
             try {
               const ownerMember = await interaction.guild.members.fetch(ownerId);
               ownerDisplay = ownerMember?.displayName || ownerMember?.user?.username || ownerId;
-              ownerAvatarUrl = ownerMember?.user?.displayAvatarURL?.({ extension: "png", size: 256 }) || null;
             } catch (error) {
               ownerDisplay = ownerId;
             }
@@ -6110,49 +6041,24 @@ client.on("interactionCreate", async (interaction) => {
             : false;
 
           const characterPointsValue = getCharacterPoints(interaction.guildId, character.id);
-          let cardPageOneBuffer = null;
-          let cardPageTwoBuffer = null;
+          let cardBuffer = null;
           try {
-            [cardPageOneBuffer, cardPageTwoBuffer] = await Promise.all([
-              generateCharacterCardImage(character, {
-                theme,
-                accentColor: accentInput,
-                showBackstory,
-                ownerDisplay,
-                ownerAvatarUrl,
-                pickedByDisplay: ownerDisplay,
-                isPicked,
-                points: characterPointsValue,
-                page: 1
-              }).catch((err) => { console.error("Profile card page 1 failed:", err.message); return null; }),
-              generateCharacterCardImage(character, {
-                theme,
-                accentColor: accentInput,
-                showBackstory,
-                ownerDisplay,
-                ownerAvatarUrl,
-                pickedByDisplay: ownerDisplay,
-                isPicked,
-                points: characterPointsValue,
-                page: 2
-              }).catch((err) => { console.error("Profile card page 2 failed:", err.message); return null; })
-            ]);
+            cardBuffer = await generateCharacterCardImage(character, {
+              theme,
+              accentColor: accentInput,
+              ownerDisplay,
+              pickedByDisplay: ownerDisplay,
+              isPicked,
+              points: characterPointsValue
+            });
           } catch (cardError) {
             console.error("Profile card generation failed:", cardError);
           }
 
-          if (cardPageOneBuffer || cardPageTwoBuffer) {
-            const files = [];
-            if (cardPageOneBuffer) {
-              files.push({ attachment: cardPageOneBuffer, name: `character-profile-${character.id}-p1.png` });
-            }
-            if (cardPageTwoBuffer) {
-              files.push({ attachment: cardPageTwoBuffer, name: `character-profile-${character.id}-p2.png` });
-            }
-
+          if (cardBuffer) {
             await interaction.editReply({
-              content: `**${character.name}** • Profile Pages ${files.length === 2 ? "1/2 + 2/2" : "generated"}`,
-              files
+              content: `**${character.name}** • Character Profile`,
+              files: [{ attachment: cardBuffer, name: `character-profile-${character.id}.png` }]
             });
             return;
           }
