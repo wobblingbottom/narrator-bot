@@ -3565,6 +3565,7 @@ function buildHelpView(guildId, userId, isAdmin, page = 0) {
           heading: "Characters",
           lines: [
             `${BULLET_EMOJI_RAW} \`/character assign\` — Assign character ownership`,
+            `${BULLET_EMOJI_RAW} \`/character remove\` — Unassign a character from a user`,
             `${BULLET_EMOJI_RAW} \`/character create\` / \`/character delete\` — Manage characters`,
             `${BULLET_EMOJI_RAW} \`/character change-id\` — Change character IDs`,
             `${BULLET_EMOJI_RAW} \`/character clear-webhooks\` — Reset webhook cache`
@@ -3689,6 +3690,27 @@ function buildTutorialView(guildId, userId, page = 0) {
         `${BULLET_EMOJI_RAW} Run \`/wallet\` to check user + character balances.`,
         `${BULLET_EMOJI_RAW} Run \`/shop\` to buy slot upgrades and character upgrades.`,
         `${BULLET_EMOJI_RAW} Run \`/points\` and \`/leaderboard\` to track progress.`
+      ]
+    },
+    {
+      title: "Tutorial • Step 5",
+      lines: [
+        "**View and customize your character**",
+        `${BULLET_EMOJI_RAW} Run \`/character profile\` to view your character card.`,
+        `${BULLET_EMOJI_RAW} Run \`/character edit\` to change bio, personality, backstory, and more.`,
+        `${BULLET_EMOJI_RAW} You can also edit your card style, accent colour, and select a title.`,
+        `${BULLET_EMOJI_RAW} Premium users can set a custom background image on their card.`
+      ]
+    },
+    {
+      title: "Tutorial • Step 6",
+      lines: [
+        "**Inventory, items, and titles**",
+        `${BULLET_EMOJI_RAW} Run \`/inventory\` to see your items and carry weight.`,
+        `${BULLET_EMOJI_RAW} Run \`/use-item\` to consume an item, \`/gift-item\` to give one away.`,
+        `${BULLET_EMOJI_RAW} Run \`/trade propose\` to start a trade with another user.`,
+        `${BULLET_EMOJI_RAW} Titles can be purchased from \`/shop\` and selected via \`/character edit\`.`,
+        `${BULLET_EMOJI_RAW} Titles are per-user — once bought, you can use them on any character.`
       ]
     }
   ];
