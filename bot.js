@@ -11279,23 +11279,35 @@ client.on("interactionCreate", async (interaction) => {
         const characterId = interaction.customId.replace("report_character_", "");
         const character = getCharacterById(characterId, interaction.guildId);
 
-        // Always show "Report sent" and disable the button
-        try {
-          await interaction.update({
-            components: [{
-              type: 1,
-              components: [{
-                type: 2,
-                style: 2,
-                label: "Report sent",
-                custom_id: `report_character_${characterId}`,
-                disabled: true
-              }]
-            }]
-          });
-        } catch (err) {
-          // Interaction may have expired
+        if (!character || !interaction.inGuild()) {
+          await interaction.reply({ content: "Character not found.", flags: 64 });
+          return;
         }
+
+        await interaction.reply({
+          content: `Are you sure you want to report **${character.name}**? This will notify the server's bot managers.`,
+          components: [{
+            type: 1,
+            components: [
+              { type: 2, style: 4, label: "Confirm Report", custom_id: `report_confirm_${characterId}` },
+              { type: 2, style: 2, label: "Cancel", custom_id: "report_cancel" }
+            ]
+          }],
+          flags: 64
+        });
+        return;
+      }
+
+      if (interaction.customId === "report_cancel") {
+        await interaction.update({ content: "Report cancelled.", components: [] });
+        return;
+      }
+
+      if (interaction.customId.startsWith("report_confirm_")) {
+        const characterId = interaction.customId.replace("report_confirm_", "");
+        const character = getCharacterById(characterId, interaction.guildId);
+
+        await interaction.update({ content: "Report sent.", components: [] });
 
         if (!character || !interaction.inGuild()) return;
 
