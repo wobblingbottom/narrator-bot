@@ -5993,7 +5993,16 @@ client.on("interactionCreate", async (interaction) => {
             return;
           }
 
-          await interaction.deferReply();
+          if (!interaction.deferred && !interaction.replied) {
+            try {
+              await interaction.deferReply();
+            } catch (deferError) {
+              // If already acknowledged elsewhere (auto-ack guard race), continue with editReply path.
+              if (deferError?.code !== 40060) {
+                throw deferError;
+              }
+            }
+          }
 
           const ownerId = getAssignedUserId(interaction.guildId, character.id);
           let ownerDisplay = "Unassigned";
