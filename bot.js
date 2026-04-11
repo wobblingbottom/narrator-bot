@@ -4782,6 +4782,8 @@ async function generateCharacterCardImage(character, options = {}) {
   const safeAge = escapeSvgText(age);
   const safeBackstory = escapeSvgText(backstory);
   const safePickedBy = escapeSvgText(pickedByDisplay);
+  const ownerName = clampText(options.ownerDisplay || "Unassigned", 20);
+  const safeOwner = escapeSvgText(ownerName);
 
   // Decorative corner ornaments
   const cornerOrnament = (cx, cy, rot) => `
@@ -4921,6 +4923,11 @@ async function generateCharacterCardImage(character, options = {}) {
   <line x1="80" y1="494" x2="228" y2="494" stroke="${palette.border}" stroke-opacity="0.2" stroke-width="1"/>
   <text x="154" y="516" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="11" letter-spacing="2" text-transform="uppercase">BOND</text>
   <text x="154" y="538" text-anchor="middle" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="17">${safeRelationship}</text>
+
+  <!-- Owner -->
+  <line x1="80" y1="556" x2="228" y2="556" stroke="${palette.border}" stroke-opacity="0.2" stroke-width="1"/>
+  <text x="154" y="572" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="11" letter-spacing="2" text-transform="uppercase">OWNER</text>
+  <text x="154" y="568" text-anchor="middle" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="15" dy="22">${safeOwner}</text>
 
   <!-- ===== RIGHT COLUMN ===== -->
 
