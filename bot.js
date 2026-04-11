@@ -64,7 +64,7 @@ const USER_INVENTORY_PATH = path.join(DATA_DIR, "userInventory.json");
 const ITEM_RECIPES_PATH = path.join(DATA_DIR, "itemRecipes.json");
 const TRADE_PROPOSALS_PATH = path.join(DATA_DIR, "tradeProposals.json");
 const TITLES_PATH = path.join(DATA_DIR, "titles.json");
-const CHARACTER_TITLES_PATH = path.join(DATA_DIR, "characterTitles.json");
+const USER_TITLES_PATH = path.join(DATA_DIR, "userTitles.json");
 const ECONOMY_DB_PATH = path.join(DATA_DIR, "economy.sqlite");
 
 const MESSAGE_POINTS_MIN = 0.25;
@@ -367,7 +367,7 @@ let userInventory = readJson(USER_INVENTORY_PATH, {});
 let itemRecipes = readJson(ITEM_RECIPES_PATH, []);
 let tradeProposals = readJson(TRADE_PROPOSALS_PATH, []);
 let titles = readJson(TITLES_PATH, []);
-let characterTitles = readJson(CHARACTER_TITLES_PATH, {});
+let userTitles = readJson(USER_TITLES_PATH, {});
 let economyDb = null;
 
 if (!Array.isArray(shopRoleItems)) {
@@ -390,8 +390,8 @@ if (!Array.isArray(titles)) {
   titles = [];
 }
 
-if (!characterTitles || typeof characterTitles !== "object" || Array.isArray(characterTitles)) {
-  characterTitles = {};
+if (!userTitles || typeof userTitles !== "object" || Array.isArray(userTitles)) {
+  userTitles = {};
 }
 
 if (!userInventory || typeof userInventory !== "object" || Array.isArray(userInventory)) {
@@ -1198,8 +1198,8 @@ function saveTitles() {
   writeJson(TITLES_PATH, titles);
 }
 
-function saveCharacterTitles() {
-  writeJson(CHARACTER_TITLES_PATH, characterTitles);
+function saveUserTitles() {
+  writeJson(USER_TITLES_PATH, userTitles);
 }
 
 function saveInventoryItems() {
@@ -1521,37 +1521,31 @@ function getTitleById(guildId, titleId) {
   return titles.find((t) => t && t.guildId === guildId && t.id === titleId) || null;
 }
 
-function getCharacterTitleKey(guildId, characterId) {
-  return `${getScopeId(guildId)}:${characterId}`;
+function getUserTitleKey(guildId, userId) {
+  return `${getScopeId(guildId)}:${userId}`;
 }
 
-function getOwnedTitleIds(guildId, characterId) {
-  return characterTitles[getCharacterTitleKey(guildId, characterId)] || [];
+function getOwnedTitleIds(guildId, userId) {
+  return userTitles[getUserTitleKey(guildId, userId)] || [];
 }
 
-function hasTitle(guildId, characterId, titleId) {
-  return getOwnedTitleIds(guildId, characterId).includes(titleId);
+function hasTitle(guildId, userId, titleId) {
+  return getOwnedTitleIds(guildId, userId).includes(titleId);
 }
 
-function addTitleToCharacter(guildId, characterId, titleId) {
-  if (!guildId || !characterId || !titleId) return;
-  const key = getCharacterTitleKey(guildId, characterId);
-  const existing = new Set(characterTitles[key] || []);
+function addTitleToUser(guildId, userId, titleId) {
+  if (!guildId || !userId || !titleId) return;
+  const key = getUserTitleKey(guildId, userId);
+  const existing = new Set(userTitles[key] || []);
   existing.add(titleId);
-  characterTitles[key] = Array.from(existing);
-  saveCharacterTitles();
+  userTitles[key] = Array.from(existing);
+  saveUserTitles();
 }
 
 function getSelectedTitle(guildId, characterId) {
   const character = getCharacterById(characterId, guildId);
   if (!character || !character.selectedTitle) return null;
   return getTitleById(guildId, character.selectedTitle);
-}
-
-function clearCharacterTitles(guildId, characterId) {
-  const key = getCharacterTitleKey(guildId, characterId);
-  delete characterTitles[key];
-  saveCharacterTitles();
 }
 
 function getShopRoleItemsForGuild(guildId) {
@@ -1772,7 +1766,7 @@ function buildTitleAddModal() {
             type: 4,
             custom_id: "price",
             style: 1,
-            label: "Price (character points)",
+            label: "Price (user points)",
             placeholder: "Example: 50",
             required: true,
             max_length: 10
@@ -1787,7 +1781,7 @@ function buildTitleAdminPanel(guildId, statusLine = null) {
   const guildTitles = getTitlesForGuild(guildId);
   const components = [
     { type: 10, content: "## Title Shop Manager" },
-    { type: 10, content: "Manage titles shown in `/shop`. Players buy titles for their characters and select them in `/character edit`." },
+    { type: 10, content: "Manage titles shown in `/shop`. Players buy titles with user points and can use them on any of their characters via `/character edit`." },
     { type: 14, divider: true, spacing: 1 }
   ];
 
@@ -1823,7 +1817,7 @@ function buildTitleAdminPanel(guildId, statusLine = null) {
       const item = guildTitles[index];
       components.push({
         type: 10,
-        content: `**${item.name}**\n${item.description}\nPrice: **${item.price} ${POINTS_EMOJI_RAW}** (Character Wallet)`
+        content: `**${item.name}**\n${item.description}\nPrice: **${item.price} ${POINTS_EMOJI_RAW}** (User Wallet)`
       });
       components.push({
         type: 1,
@@ -2942,20 +2936,6 @@ function renameCharacterIdInGuild(guildId, oldCharacterId, newCharacterId) {
 
   removeInventoryHoldersForCharacter(guildId, oldCharacterId, newCharacterId);
 
-  // Migrate character titles
-  const oldTitleKey = getCharacterTitleKey(guildId, oldCharacterId);
-  const newTitleKey = getCharacterTitleKey(guildId, newCharacterId);
-  const mergedTitles = Array.from(new Set([
-    ...(characterTitles[newTitleKey] || []),
-    ...(characterTitles[oldTitleKey] || [])
-  ]));
-  if (mergedTitles.length > 0) {
-    characterTitles[newTitleKey] = mergedTitles;
-  } else {
-    delete characterTitles[newTitleKey];
-  }
-  delete characterTitles[oldTitleKey];
-
   character.id = newCharacterId;
 
   writeJson(CHARACTERS_PATH, characters);
@@ -2963,7 +2943,6 @@ function renameCharacterIdInGuild(guildId, oldCharacterId, newCharacterId) {
   saveSelections();
   saveCharacterPoints();
   saveCharacterUpgrades();
-  saveCharacterTitles();
   saveWebhooks();
   return true;
 }
@@ -3028,7 +3007,7 @@ function getShopItems(guildId, userId) {
       id: `title:${titleItem.id}`,
       name: `Title: ${titleItem.name}`,
       description: titleItem.description,
-      wallet: "Character Wallet",
+      wallet: "User Wallet",
       cost: titleItem.price,
       emoji: SHOP_ITEM_EMOJI_RAW
     });
@@ -3777,7 +3756,6 @@ function deleteCharacterFromGuild(guildId, characterId) {
   saveCharacterPoints();
   clearCharacterUpgrades(guildId, characterId);
   saveCharacterUpgrades();
-  clearCharacterTitles(guildId, characterId);
   clearCharacterSelectionsInGuild(guildId, characterId);
   saveSelections();
   removeInventoryHoldersForCharacter(guildId, characterId);
@@ -6520,7 +6498,6 @@ client.on("interactionCreate", async (interaction) => {
               saveCharacterPoints();
               clearCharacterUpgrades(interaction.guildId, characterId);
               saveCharacterUpgrades();
-              clearCharacterTitles(interaction.guildId, characterId);
 
               // Remove from selections
               clearCharacterSelectionsInGuild(interaction.guildId, characterId);
@@ -9611,24 +9588,18 @@ client.on("interactionCreate", async (interaction) => {
         } else if (itemId.startsWith("title:")) {
           const titleId = itemId.slice("title:".length);
           const titleItem = getTitleById(interaction.guildId, titleId);
-          const selectedCharacterId = getSelectedCharacterId(interaction.guildId, interaction.user.id);
 
           if (!titleItem) {
             statusLine = `${UNSUCCESSFUL_EMOJI_RAW} This title no longer exists.`;
-          } else if (!selectedCharacterId) {
-            statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Select a character first with /character pick.`;
-          } else if (getAssignedUserId(interaction.guildId, selectedCharacterId) !== interaction.user.id) {
-            statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Your selected character is not assigned to you.`;
-          } else if (hasTitle(interaction.guildId, selectedCharacterId, titleId)) {
-            statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Selected character already owns this title.`;
+          } else if (hasTitle(interaction.guildId, interaction.user.id, titleId)) {
+            statusLine = `${UNSUCCESSFUL_EMOJI_RAW} You already own this title.`;
           } else {
-            const charPoints = getCharacterPoints(interaction.guildId, selectedCharacterId);
-            if (charPoints < titleItem.price) {
-              statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Not enough character points: ${formatPointsWithEmoji(charPoints)}/${formatPointsWithEmoji(titleItem.price)}`;
-            } else if (spendCharacterPoints(interaction.guildId, selectedCharacterId, titleItem.price)) {
-              addTitleToCharacter(interaction.guildId, selectedCharacterId, titleId);
-              const character = getCharacterById(selectedCharacterId, interaction.guildId);
-              statusLine = `<:success:1479234774861221898> Bought title **${titleItem.name}** for ${character?.name || selectedCharacterId}.`;
+            const currentPoints = getUserPoints(interaction.guildId, interaction.user.id);
+            if (currentPoints < titleItem.price) {
+              statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Not enough user points: ${formatPointsWithEmoji(currentPoints)}/${formatPointsWithEmoji(titleItem.price)}`;
+            } else if (spendPoints(interaction.guildId, interaction.user.id, titleItem.price)) {
+              addTitleToUser(interaction.guildId, interaction.user.id, titleId);
+              statusLine = `<:success:1479234774861221898> Bought title **${titleItem.name}**. Select it on any character via \`/character edit\`.`;
             }
           }
         }
@@ -9870,7 +9841,7 @@ client.on("interactionCreate", async (interaction) => {
       if (selectedValue === "none") {
         character.selectedTitle = "";
       } else {
-        const ownedIds = getOwnedTitleIds(interaction.guildId, characterId);
+        const ownedIds = getOwnedTitleIds(interaction.guildId, interaction.user.id);
         if (!ownedIds.includes(selectedValue)) {
           await interaction.reply({
             content: "You don't own that title.",
@@ -11508,12 +11479,12 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
-        const ownedIds = getOwnedTitleIds(interaction.guildId, characterId);
+        const ownedIds = getOwnedTitleIds(interaction.guildId, interaction.user.id);
         if (ownedIds.length === 0) {
           await replyComponentsV2(
             interaction,
             "Select Title",
-            ["This character doesn't own any titles yet. Buy titles from `/shop`."],
+            ["You don't own any titles yet. Buy titles from `/shop`."],
             [],
             { ephemeral: true }
           );
@@ -11539,7 +11510,7 @@ client.on("interactionCreate", async (interaction) => {
           await replyComponentsV2(
             interaction,
             "Select Title",
-            ["This character's owned titles no longer exist in this server. Buy titles from `/shop`."],
+            ["Your owned titles no longer exist in this server. Buy titles from `/shop`."],
             [],
             { ephemeral: true }
           );
