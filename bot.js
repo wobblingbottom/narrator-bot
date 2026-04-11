@@ -4832,6 +4832,15 @@ async function generateCharacterCardImage(character, options = {}) {
   const safePersonalityLines = personalityLines.map(l => escapeSvgText(l));
   const safeBackstoryLines = backstoryLines.map(l => escapeSvgText(l));
 
+  // When a background image is set, make everything more transparent so the image shows through
+  const hasBg = Boolean(options.backgroundUrl);
+  const panelFill = hasBg ? `${palette.bgA}88` : palette.panel;        // main panel: more transparent
+  const sectionFillOpacity = hasBg ? "0.25" : "0.6";                   // tale box
+  const sectionFillOpacity2 = hasBg ? "0.2" : "0.5";                   // temperament box
+  const sectionFillOpacity3 = hasBg ? "0.15" : "0.4";                  // origins box
+  const vitalsPanelOpacity = hasBg ? "0.2" : "0.4";                    // left vitals
+  const avatarFrameFill = hasBg ? `${palette.sectionBg}66` : palette.sectionBg; // avatar box
+
   const svg = `
 <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
   <defs>
@@ -4860,16 +4869,16 @@ async function generateCharacterCardImage(character, options = {}) {
   </defs>
 
   <!-- Background -->
-  <rect x="0" y="0" width="${width}" height="${height}" fill="url(#bg)"/>
-  <rect x="0" y="0" width="${width}" height="${height}" fill="url(#mist1)"/>
-  <rect x="0" y="0" width="${width}" height="${height}" fill="url(#mist2)"/>
+  ${hasBg ? `<rect x="0" y="0" width="${width}" height="${height}" fill="${palette.bgA}" fill-opacity="0"/>` : `<rect x="0" y="0" width="${width}" height="${height}" fill="url(#bg)"/>`}
+  ${hasBg ? "" : `<rect x="0" y="0" width="${width}" height="${height}" fill="url(#mist1)"/>`}
+  ${hasBg ? "" : `<rect x="0" y="0" width="${width}" height="${height}" fill="url(#mist2)"/>`}
 
   <!-- Mystical orbs -->
-  <circle cx="100" cy="580" r="120" fill="${accent}" opacity="0.06"/>
-  <circle cx="1050" cy="90" r="100" fill="${accent}" opacity="0.05"/>
+  ${hasBg ? "" : `<circle cx="100" cy="580" r="120" fill="${accent}" opacity="0.06"/>`}
+  ${hasBg ? "" : `<circle cx="1050" cy="90" r="100" fill="${accent}" opacity="0.05"/>`}
 
   <!-- Main panel -->
-  <rect x="24" y="24" width="1152" height="627" rx="12" fill="${palette.panel}" stroke="${palette.border}" stroke-opacity="0.4" stroke-width="2"/>
+  <rect x="24" y="24" width="1152" height="627" rx="12" fill="${panelFill}" stroke="${palette.border}" stroke-opacity="0.4" stroke-width="2"/>
   <rect x="24" y="24" width="1152" height="4" rx="2" fill="url(#accentGlow)"/>
 
   <!-- Corner ornaments -->
@@ -4892,7 +4901,7 @@ async function generateCharacterCardImage(character, options = {}) {
   <!-- ===== LEFT COLUMN ===== -->
 
   <!-- Avatar frame -->
-  <rect x="54" y="56" width="200" height="200" rx="10" fill="${palette.sectionBg}" stroke="${palette.border}" stroke-opacity="0.4" stroke-width="2"/>
+  <rect x="54" y="56" width="200" height="200" rx="10" fill="${avatarFrameFill}" stroke="${palette.border}" stroke-opacity="0.4" stroke-width="2"/>
   <rect x="58" y="60" width="192" height="192" rx="8" fill="none" stroke="${accent}" stroke-opacity="0.15" stroke-width="1" stroke-dasharray="3,6"/>
   <text x="154" y="158" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="13" font-style="italic" fill-opacity="0.4">No Portrait</text>
 
@@ -4903,7 +4912,7 @@ async function generateCharacterCardImage(character, options = {}) {
   <line x1="178" y1="278" x2="238" y2="278" stroke="${accent}" stroke-opacity="0.2" stroke-width="1"/>
 
   <!-- Left vitals panel -->
-  <rect x="54" y="300" width="200" height="275" rx="8" fill="${palette.sectionBg}" fill-opacity="0.4" stroke="${palette.border}" stroke-opacity="0.15" stroke-width="1"/>
+  <rect x="54" y="300" width="200" height="275" rx="8" fill="${palette.sectionBg}" fill-opacity="${vitalsPanelOpacity}" stroke="${palette.border}" stroke-opacity="0.15" stroke-width="1"/>
 
   <!-- Class -->
   <text x="154" y="330" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="11" letter-spacing="2" text-transform="uppercase">CLASS</text>
@@ -4932,14 +4941,14 @@ async function generateCharacterCardImage(character, options = {}) {
 
   <!-- BIO (TALE) -->
   ${sectionLabel(cx, 124, "TALE")}
-  <rect x="${cx}" y="138" width="${cw}" height="${Math.max(56, bioLines.length * 24 + 24)}" rx="8" fill="${palette.sectionBg}" fill-opacity="0.6" stroke="${palette.border}" stroke-opacity="0.18" stroke-width="1"/>
+  <rect x="${cx}" y="138" width="${cw}" height="${Math.max(56, bioLines.length * 24 + 24)}" rx="8" fill="${palette.sectionBg}" fill-opacity="${sectionFillOpacity}" stroke="${palette.border}" stroke-opacity="0.18" stroke-width="1"/>
   <text x="${cx + 16}" y="162" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="17">
     ${safeBioLines.map((line, i) => `<tspan x="${cx + 16}" dy="${i === 0 ? 0 : 22}">${line}</tspan>`).join("")}
   </text>
 
   <!-- PERSONALITY (TEMPERAMENT) -->
   ${sectionLabel(cx, 138 + Math.max(56, bioLines.length * 24 + 24) + 22, "TEMPERAMENT")}
-  <rect x="${cx}" y="${138 + Math.max(56, bioLines.length * 24 + 24) + 36}" width="${cw}" height="${Math.max(56, personalityLines.length * 24 + 24)}" rx="8" fill="${palette.sectionBg}" fill-opacity="0.5" stroke="${palette.border}" stroke-opacity="0.14" stroke-width="1"/>
+  <rect x="${cx}" y="${138 + Math.max(56, bioLines.length * 24 + 24) + 36}" width="${cw}" height="${Math.max(56, personalityLines.length * 24 + 24)}" rx="8" fill="${palette.sectionBg}" fill-opacity="${sectionFillOpacity2}" stroke="${palette.border}" stroke-opacity="0.14" stroke-width="1"/>
   <text x="${cx + 16}" y="${138 + Math.max(56, bioLines.length * 24 + 24) + 60}" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="17">
     ${safePersonalityLines.map((line, i) => `<tspan x="${cx + 16}" dy="${i === 0 ? 0 : 22}">${line}</tspan>`).join("")}
   </text>
@@ -4954,7 +4963,7 @@ async function generateCharacterCardImage(character, options = {}) {
     const xpFillWidth = Math.min(xpBarWidth, Math.floor((levelInfo.currentXp / Math.max(1, levelInfo.nextXp)) * xpBarWidth));
     return `
   ${sectionLabel(cx, originsLabelY, "ORIGINS")}
-  <rect x="${cx}" y="${originsBoxY}" width="${cw}" height="${originsHeight}" rx="8" fill="${palette.sectionBg}" fill-opacity="0.4" stroke="${palette.border}" stroke-opacity="0.12" stroke-width="1"/>
+  <rect x="${cx}" y="${originsBoxY}" width="${cw}" height="${originsHeight}" rx="8" fill="${palette.sectionBg}" fill-opacity="${sectionFillOpacity3}" stroke="${palette.border}" stroke-opacity="0.12" stroke-width="1"/>
   <text x="${cx + 16}" y="${originsBoxY + 24}" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="17">
     ${safeBackstoryLines.map((line, i) => `<tspan x="${cx + 16}" dy="${i === 0 ? 0 : 22}">${line}</tspan>`).join("")}
   </text>
