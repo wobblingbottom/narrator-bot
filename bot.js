@@ -63,6 +63,8 @@ const INVENTORY_ITEMS_PATH = path.join(DATA_DIR, "inventoryItems.json");
 const USER_INVENTORY_PATH = path.join(DATA_DIR, "userInventory.json");
 const ITEM_RECIPES_PATH = path.join(DATA_DIR, "itemRecipes.json");
 const TRADE_PROPOSALS_PATH = path.join(DATA_DIR, "tradeProposals.json");
+const TITLES_PATH = path.join(DATA_DIR, "titles.json");
+const CHARACTER_TITLES_PATH = path.join(DATA_DIR, "characterTitles.json");
 const ECONOMY_DB_PATH = path.join(DATA_DIR, "economy.sqlite");
 
 const MESSAGE_POINTS_MIN = 0.25;
@@ -364,6 +366,8 @@ let inventoryItems = readJson(INVENTORY_ITEMS_PATH, []);
 let userInventory = readJson(USER_INVENTORY_PATH, {});
 let itemRecipes = readJson(ITEM_RECIPES_PATH, []);
 let tradeProposals = readJson(TRADE_PROPOSALS_PATH, []);
+let titles = readJson(TITLES_PATH, []);
+let characterTitles = readJson(CHARACTER_TITLES_PATH, {});
 let economyDb = null;
 
 if (!Array.isArray(shopRoleItems)) {
@@ -380,6 +384,14 @@ if (!Array.isArray(itemRecipes)) {
 
 if (!Array.isArray(tradeProposals)) {
   tradeProposals = [];
+}
+
+if (!Array.isArray(titles)) {
+  titles = [];
+}
+
+if (!characterTitles || typeof characterTitles !== "object" || Array.isArray(characterTitles)) {
+  characterTitles = {};
 }
 
 if (!userInventory || typeof userInventory !== "object" || Array.isArray(userInventory)) {
@@ -1182,6 +1194,14 @@ function saveShopRoleItems() {
   writeJson(SHOP_ROLE_ITEMS_PATH, shopRoleItems);
 }
 
+function saveTitles() {
+  writeJson(TITLES_PATH, titles);
+}
+
+function saveCharacterTitles() {
+  writeJson(CHARACTER_TITLES_PATH, characterTitles);
+}
+
 function saveInventoryItems() {
   writeJson(INVENTORY_ITEMS_PATH, inventoryItems);
 }
@@ -1488,6 +1508,52 @@ function generateShopRoleItemId() {
   return `roleitem_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function generateTitleId() {
+  return `title_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getTitlesForGuild(guildId) {
+  if (!guildId) return [];
+  return titles.filter((t) => t && t.guildId === guildId);
+}
+
+function getTitleById(guildId, titleId) {
+  return titles.find((t) => t && t.guildId === guildId && t.id === titleId) || null;
+}
+
+function getCharacterTitleKey(guildId, characterId) {
+  return `${getScopeId(guildId)}:${characterId}`;
+}
+
+function getOwnedTitleIds(guildId, characterId) {
+  return characterTitles[getCharacterTitleKey(guildId, characterId)] || [];
+}
+
+function hasTitle(guildId, characterId, titleId) {
+  return getOwnedTitleIds(guildId, characterId).includes(titleId);
+}
+
+function addTitleToCharacter(guildId, characterId, titleId) {
+  if (!guildId || !characterId || !titleId) return;
+  const key = getCharacterTitleKey(guildId, characterId);
+  const existing = new Set(characterTitles[key] || []);
+  existing.add(titleId);
+  characterTitles[key] = Array.from(existing);
+  saveCharacterTitles();
+}
+
+function getSelectedTitle(guildId, characterId) {
+  const character = getCharacterById(characterId, guildId);
+  if (!character || !character.selectedTitle) return null;
+  return getTitleById(guildId, character.selectedTitle);
+}
+
+function clearCharacterTitles(guildId, characterId) {
+  const key = getCharacterTitleKey(guildId, characterId);
+  delete characterTitles[key];
+  saveCharacterTitles();
+}
+
 function getShopRoleItemsForGuild(guildId) {
   if (!guildId) {
     return [];
@@ -1658,6 +1724,120 @@ function buildRoleShopAdminPanel(guildId, statusLine = null) {
       });
 
       if (index < roleItems.length - 1) {
+        components.push({ type: 14, divider: true, spacing: 1 });
+      }
+    }
+  }
+
+  return [{ type: 17, components }];
+}
+
+function buildTitleAddModal() {
+  return {
+    title: "Add Title to Shop",
+    custom_id: "titles:add:modal",
+    components: [
+      {
+        type: 1,
+        components: [
+          {
+            type: 4,
+            custom_id: "name",
+            style: 1,
+            label: "Title Name",
+            placeholder: "Example: The Mighty",
+            required: true,
+            max_length: 60
+          }
+        ]
+      },
+      {
+        type: 1,
+        components: [
+          {
+            type: 4,
+            custom_id: "description",
+            style: 2,
+            label: "Description",
+            placeholder: "Shown in the shop",
+            required: true,
+            max_length: 200
+          }
+        ]
+      },
+      {
+        type: 1,
+        components: [
+          {
+            type: 4,
+            custom_id: "price",
+            style: 1,
+            label: "Price (character points)",
+            placeholder: "Example: 50",
+            required: true,
+            max_length: 10
+          }
+        ]
+      }
+    ]
+  };
+}
+
+function buildTitleAdminPanel(guildId, statusLine = null) {
+  const guildTitles = getTitlesForGuild(guildId);
+  const components = [
+    { type: 10, content: "## Title Shop Manager" },
+    { type: 10, content: "Manage titles shown in `/shop`. Players buy titles for their characters and select them in `/character edit`." },
+    { type: 14, divider: true, spacing: 1 }
+  ];
+
+  if (statusLine) {
+    components.push({ type: 10, content: statusLine });
+    components.push({ type: 14, divider: true, spacing: 1 });
+  }
+
+  components.push({
+    type: 1,
+    components: [
+      {
+        type: 2,
+        style: 1,
+        label: "Add Title",
+        custom_id: "titles:add"
+      },
+      {
+        type: 2,
+        style: 2,
+        label: "Refresh",
+        custom_id: "titles:refresh"
+      }
+    ]
+  });
+
+  components.push({ type: 14, divider: true, spacing: 1 });
+
+  if (guildTitles.length === 0) {
+    components.push({ type: 10, content: "No titles created yet." });
+  } else {
+    for (let index = 0; index < guildTitles.length; index += 1) {
+      const item = guildTitles[index];
+      components.push({
+        type: 10,
+        content: `**${item.name}**\n${item.description}\nPrice: **${item.price} ${POINTS_EMOJI_RAW}** (Character Wallet)`
+      });
+      components.push({
+        type: 1,
+        components: [
+          {
+            type: 2,
+            style: 4,
+            label: "Delete",
+            custom_id: `titles:delete:${item.id}`
+          }
+        ]
+      });
+
+      if (index < guildTitles.length - 1) {
         components.push({ type: 14, divider: true, spacing: 1 });
       }
     }
@@ -2762,6 +2942,20 @@ function renameCharacterIdInGuild(guildId, oldCharacterId, newCharacterId) {
 
   removeInventoryHoldersForCharacter(guildId, oldCharacterId, newCharacterId);
 
+  // Migrate character titles
+  const oldTitleKey = getCharacterTitleKey(guildId, oldCharacterId);
+  const newTitleKey = getCharacterTitleKey(guildId, newCharacterId);
+  const mergedTitles = Array.from(new Set([
+    ...(characterTitles[newTitleKey] || []),
+    ...(characterTitles[oldTitleKey] || [])
+  ]));
+  if (mergedTitles.length > 0) {
+    characterTitles[newTitleKey] = mergedTitles;
+  } else {
+    delete characterTitles[newTitleKey];
+  }
+  delete characterTitles[oldTitleKey];
+
   character.id = newCharacterId;
 
   writeJson(CHARACTERS_PATH, characters);
@@ -2769,6 +2963,7 @@ function renameCharacterIdInGuild(guildId, oldCharacterId, newCharacterId) {
   saveSelections();
   saveCharacterPoints();
   saveCharacterUpgrades();
+  saveCharacterTitles();
   saveWebhooks();
   return true;
 }
@@ -2823,6 +3018,18 @@ function getShopItems(guildId, userId) {
       description: upgrade.description,
       wallet: "Character Wallet",
       cost: upgrade.cost,
+      emoji: SHOP_ITEM_EMOJI_RAW
+    });
+  }
+
+  const guildTitles = getTitlesForGuild(guildId);
+  for (const titleItem of guildTitles) {
+    items.push({
+      id: `title:${titleItem.id}`,
+      name: `Title: ${titleItem.name}`,
+      description: titleItem.description,
+      wallet: "Character Wallet",
+      cost: titleItem.price,
       emoji: SHOP_ITEM_EMOJI_RAW
     });
   }
@@ -3393,6 +3600,7 @@ function buildHelpView(guildId, userId, isAdmin, page = 0) {
             `${BULLET_EMOJI_RAW} \`/setup give-item\` — Give inventory items to users`,
             `${BULLET_EMOJI_RAW} \`/setup set-item-shop\` — Add/remove inventory items from /shop`,
             `${BULLET_EMOJI_RAW} \`/setup add-role-shop-item\` — Add role item to shop`,
+            `${BULLET_EMOJI_RAW} \`/setup manage-titles\` — Manage purchasable titles`,
             `${BULLET_EMOJI_RAW} \`/bot-say\` — Send a message as the bot`
           ]
         }
@@ -3569,6 +3777,7 @@ function deleteCharacterFromGuild(guildId, characterId) {
   saveCharacterPoints();
   clearCharacterUpgrades(guildId, characterId);
   saveCharacterUpgrades();
+  clearCharacterTitles(guildId, characterId);
   clearCharacterSelectionsInGuild(guildId, characterId);
   saveSelections();
   removeInventoryHoldersForCharacter(guildId, characterId);
@@ -4093,6 +4302,11 @@ async function registerCommands() {
               { name: "Character Wallet", value: "character" }
             )
         )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("manage-titles")
+        .setDescription("Open title shop manager (create/delete purchasable titles)")
     )
     .addSubcommand((subcommand) =>
       subcommand
@@ -4740,6 +4954,11 @@ async function generateCharacterCardImage(character, options = {}) {
   const pickedByDisplay = clampText(options.pickedByDisplay || options.ownerDisplay || "???", 30);
   const isPicked = Boolean(options.isPicked);
   const points = Number(options.points) || 0;
+  const upgradeIds = Array.isArray(options.upgradeIds) ? options.upgradeIds : [];
+  const titleName = options.titleName ? clampText(String(options.titleName), 40) : "";
+  const safeTitleName = escapeSvgText(titleName);
+  const hasWalletBoost = upgradeIds.includes("character_wallet_boost");
+  const hasCooldownBoost = upgradeIds.includes("cooldown_boost");
 
   // Level calculation: each level requires progressively more points
   const calcLevel = (pts) => {
@@ -4929,25 +5148,27 @@ async function generateCharacterCardImage(character, options = {}) {
 
   <!-- CHARACTER NAME -->
   <text x="${cx}" y="82" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="44" font-weight="700" letter-spacing="1">${safeName}</text>
-  ${divider(cx, 98, cw)}
+  ${safeTitleName ? `<text x="${cx}" y="104" fill="${accent}" font-family="Georgia, 'Times New Roman', serif" font-size="15" font-style="italic" letter-spacing="1.5" fill-opacity="0.85">~ ${safeTitleName} ~</text>` : ""}
+  ${divider(cx, safeTitleName ? 114 : 98, cw)}
 
   <!-- BIO (TALE) -->
-  ${sectionLabel(cx, 124, "TALE")}
-  <rect x="${cx}" y="138" width="${cw}" height="${Math.max(56, bioLines.length * 24 + 24)}" rx="8" fill="${palette.sectionBg}" fill-opacity="${sectionFillOpacity}" stroke="${palette.border}" stroke-opacity="0.18" stroke-width="1"/>
-  <text x="${cx + 16}" y="162" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="17">
+  ${sectionLabel(cx, safeTitleName ? 138 : 124, "TALE")}
+  <rect x="${cx}" y="${safeTitleName ? 152 : 138}" width="${cw}" height="${Math.max(56, bioLines.length * 24 + 24)}" rx="8" fill="${palette.sectionBg}" fill-opacity="${sectionFillOpacity}" stroke="${palette.border}" stroke-opacity="0.18" stroke-width="1"/>
+  <text x="${cx + 16}" y="${safeTitleName ? 176 : 162}" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="17">
     ${safeBioLines.map((line, i) => `<tspan x="${cx + 16}" dy="${i === 0 ? 0 : 22}">${line}</tspan>`).join("")}
   </text>
 
   <!-- PERSONALITY (TEMPERAMENT) -->
-  ${sectionLabel(cx, 138 + Math.max(56, bioLines.length * 24 + 24) + 22, "TEMPERAMENT")}
-  <rect x="${cx}" y="${138 + Math.max(56, bioLines.length * 24 + 24) + 36}" width="${cw}" height="${Math.max(56, personalityLines.length * 24 + 24)}" rx="8" fill="${palette.sectionBg}" fill-opacity="${sectionFillOpacity2}" stroke="${palette.border}" stroke-opacity="0.14" stroke-width="1"/>
-  <text x="${cx + 16}" y="${138 + Math.max(56, bioLines.length * 24 + 24) + 60}" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="17">
+  ${sectionLabel(cx, (safeTitleName ? 152 : 138) + Math.max(56, bioLines.length * 24 + 24) + 22, "TEMPERAMENT")}
+  <rect x="${cx}" y="${(safeTitleName ? 152 : 138) + Math.max(56, bioLines.length * 24 + 24) + 36}" width="${cw}" height="${Math.max(56, personalityLines.length * 24 + 24)}" rx="8" fill="${palette.sectionBg}" fill-opacity="${sectionFillOpacity2}" stroke="${palette.border}" stroke-opacity="0.14" stroke-width="1"/>
+  <text x="${cx + 16}" y="${(safeTitleName ? 152 : 138) + Math.max(56, bioLines.length * 24 + 24) + 60}" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="17">
     ${safePersonalityLines.map((line, i) => `<tspan x="${cx + 16}" dy="${i === 0 ? 0 : 22}">${line}</tspan>`).join("")}
   </text>
 
   <!-- BACKSTORY (ORIGINS) -->
   ${(() => {
-    const originsLabelY = 138 + Math.max(56, bioLines.length * 24 + 24) + 36 + Math.max(56, personalityLines.length * 24 + 24) + 22;
+    const baseY = safeTitleName ? 152 : 138;
+    const originsLabelY = baseY + Math.max(56, bioLines.length * 24 + 24) + 36 + Math.max(56, personalityLines.length * 24 + 24) + 22;
     const originsBoxY = originsLabelY + 14;
     const originsHeight = Math.max(70, Math.min(560 - originsBoxY, backstoryLines.length * 22 + 28));
     const statsY = originsBoxY + originsHeight + 14;
@@ -4973,7 +5194,19 @@ async function generateCharacterCardImage(character, options = {}) {
   <text x="${cx + 400}" y="${statsY + 14}" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="18" font-weight="600">${points}</text>
 
   <text x="${cx + 480}" y="${statsY + 14}" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="12" letter-spacing="2">OWNER</text>
-  <text x="${cx + 540}" y="${statsY + 14}" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="16" font-weight="600">${safeOwner}</text>`;
+  <text x="${cx + 540}" y="${statsY + 14}" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="16" font-weight="600">${safeOwner}</text>
+
+  ${hasWalletBoost || hasCooldownBoost ? `<!-- Boost badges -->` : ""}
+  ${hasWalletBoost ? `
+  <g transform="translate(${cx + 720}, ${statsY - 2})">
+    <rect x="0" y="0" width="80" height="20" rx="4" fill="${accent}" fill-opacity="0.2" stroke="${accent}" stroke-opacity="0.4" stroke-width="1"/>
+    <text x="10" y="14" fill="${accent}" font-family="Georgia, 'Times New Roman', serif" font-size="10" font-weight="600" letter-spacing="0.5">💰 WALLET+</text>
+  </g>` : ""}
+  ${hasCooldownBoost ? `
+  <g transform="translate(${cx + (hasWalletBoost ? 810 : 720)}, ${statsY - 2})">
+    <rect x="0" y="0" width="80" height="20" rx="4" fill="${accent}" fill-opacity="0.2" stroke="${accent}" stroke-opacity="0.4" stroke-width="1"/>
+    <text x="10" y="14" fill="${accent}" font-family="Georgia, 'Times New Roman', serif" font-size="10" font-weight="600" letter-spacing="0.5">⚡ SPEED+</text>
+  </g>` : ""}`;
   })()}
 
   <!-- Bottom flourish -->
@@ -6005,6 +6238,12 @@ client.on("interactionCreate", async (interaction) => {
                   style: 2,
                   label: "Edit Card Style",
                   custom_id: `edit_card_style_${characterId}`
+                },
+                {
+                  type: 2,
+                  style: 2,
+                  label: "Select Title",
+                  custom_id: `edit_title_${characterId}`
                 }
               ]
             }
@@ -6157,6 +6396,8 @@ client.on("interactionCreate", async (interaction) => {
 
           let cardBuffer = null;
           try {
+            const upgradeIds = getCharacterUpgradeIds(interaction.guildId, character.id);
+            const selectedTitleObj = getSelectedTitle(interaction.guildId, character.id);
             cardBuffer = await generateCharacterCardImage(character, {
               theme,
               accentColor,
@@ -6164,7 +6405,9 @@ client.on("interactionCreate", async (interaction) => {
               pickedByDisplay: ownerDisplay,
               isPicked,
               points: characterPointsValue,
-              backgroundUrl: hasPremium ? cardBackground : ""
+              backgroundUrl: hasPremium ? cardBackground : "",
+              upgradeIds,
+              titleName: selectedTitleObj ? selectedTitleObj.name : ""
             });
           } catch (cardError) {
             console.error("Profile card generation failed:", cardError);
@@ -6277,6 +6520,7 @@ client.on("interactionCreate", async (interaction) => {
               saveCharacterPoints();
               clearCharacterUpgrades(interaction.guildId, characterId);
               saveCharacterUpgrades();
+              clearCharacterTitles(interaction.guildId, characterId);
 
               // Remove from selections
               clearCharacterSelectionsInGuild(interaction.guildId, characterId);
@@ -7855,6 +8099,26 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
+        if (subcommand === "manage-titles") {
+          if (!interaction.inGuild()) {
+            await replyComponentsV2(
+              interaction,
+              "Setup",
+              ["This command can only be used in a server."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          await interaction.reply({
+            flags: 32768,
+            components: buildTitleAdminPanel(interaction.guildId),
+            ephemeral: true
+          });
+          return;
+        }
+
         if (subcommand === "create-item") {
           const isTemporary = interaction.options.getBoolean("temporary", false) === true;
           if (!hasAdminAccess(interaction) && !isTemporary) {
@@ -8387,6 +8651,12 @@ client.on("interactionCreate", async (interaction) => {
                   style: 2,
                   label: "Edit Card Style",
                   custom_id: `edit_card_style_${characterId}`
+                },
+                {
+                  type: 2,
+                  style: 2,
+                  label: "Select Title",
+                  custom_id: `edit_title_${characterId}`
                 }
               ]
             }
@@ -8573,6 +8843,126 @@ client.on("interactionCreate", async (interaction) => {
           await interaction.update({
             flags: 32768,
             components: buildRoleShopAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} Deletion cancelled.`
+            )
+          });
+          return;
+        }
+      }
+
+      if (interaction.customId.startsWith("titles:")) {
+        if (!interaction.inGuild()) {
+          await interaction.reply({
+            content: "This button only works in a server.",
+            flags: 32768,
+            ephemeral: true
+          });
+          return;
+        }
+
+        if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+          await interaction.reply({
+            content: "You do not have permission to manage titles.",
+            flags: 32768,
+            ephemeral: true
+          });
+          return;
+        }
+
+        const titleParts = interaction.customId.split(":");
+        const titleAction = titleParts[1];
+        const titleItemId = titleParts[2];
+
+        if (titleAction === "add") {
+          await interaction.showModal(buildTitleAddModal());
+          return;
+        }
+
+        if (titleAction === "refresh") {
+          await interaction.update({
+            flags: 32768,
+            components: buildTitleAdminPanel(interaction.guildId)
+          });
+          return;
+        }
+
+        if (titleAction === "delete") {
+          const titleItem = getTitleById(interaction.guildId, titleItemId);
+          if (!titleItem) {
+            await interaction.update({
+              flags: 32768,
+              components: buildTitleAdminPanel(
+                interaction.guildId,
+                `${UNSUCCESSFUL_EMOJI_RAW} Title no longer exists.`
+              )
+            });
+            return;
+          }
+
+          await interaction.update({
+            flags: 32768,
+            components: buildComponentsBox(
+              "Delete Title",
+              [
+                `Delete title **${titleItem.name}**?`,
+                "Characters who own this title will keep it, but it will no longer appear in the shop."
+              ],
+              [
+                {
+                  type: 1,
+                  components: [
+                    {
+                      type: 2,
+                      style: 4,
+                      label: "Confirm Delete",
+                      custom_id: `titles:delete-confirm:${titleItemId}`
+                    },
+                    {
+                      type: 2,
+                      style: 2,
+                      label: "Cancel",
+                      custom_id: "titles:delete-cancel"
+                    }
+                  ]
+                }
+              ]
+            )
+          });
+          return;
+        }
+
+        if (titleAction === "delete-confirm") {
+          const targetIndex = titles.findIndex(
+            (t) => t.guildId === interaction.guildId && t.id === titleItemId
+          );
+
+          if (targetIndex >= 0) {
+            const [removedTitle] = titles.splice(targetIndex, 1);
+            saveTitles();
+            await interaction.update({
+              flags: 32768,
+              components: buildTitleAdminPanel(
+                interaction.guildId,
+                `<:success:1479234774861221898> Deleted title **${removedTitle.name}**.`
+              )
+            });
+          } else {
+            await interaction.update({
+              flags: 32768,
+              components: buildTitleAdminPanel(
+                interaction.guildId,
+                `${UNSUCCESSFUL_EMOJI_RAW} Title no longer exists.`
+              )
+            });
+          }
+          return;
+        }
+
+        if (titleAction === "delete-cancel") {
+          await interaction.update({
+            flags: 32768,
+            components: buildTitleAdminPanel(
               interaction.guildId,
               `${UNSUCCESSFUL_EMOJI_RAW} Deletion cancelled.`
             )
@@ -9218,6 +9608,29 @@ client.on("interactionCreate", async (interaction) => {
               statusLine = `<:success:1479234774861221898> Bought ${upgrade.name} for ${character?.name || selectedCharacterId}.`;
             }
           }
+        } else if (itemId.startsWith("title:")) {
+          const titleId = itemId.slice("title:".length);
+          const titleItem = getTitleById(interaction.guildId, titleId);
+          const selectedCharacterId = getSelectedCharacterId(interaction.guildId, interaction.user.id);
+
+          if (!titleItem) {
+            statusLine = `${UNSUCCESSFUL_EMOJI_RAW} This title no longer exists.`;
+          } else if (!selectedCharacterId) {
+            statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Select a character first with /character pick.`;
+          } else if (getAssignedUserId(interaction.guildId, selectedCharacterId) !== interaction.user.id) {
+            statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Your selected character is not assigned to you.`;
+          } else if (hasTitle(interaction.guildId, selectedCharacterId, titleId)) {
+            statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Selected character already owns this title.`;
+          } else {
+            const charPoints = getCharacterPoints(interaction.guildId, selectedCharacterId);
+            if (charPoints < titleItem.price) {
+              statusLine = `${UNSUCCESSFUL_EMOJI_RAW} Not enough character points: ${formatPointsWithEmoji(charPoints)}/${formatPointsWithEmoji(titleItem.price)}`;
+            } else if (spendCharacterPoints(interaction.guildId, selectedCharacterId, titleItem.price)) {
+              addTitleToCharacter(interaction.guildId, selectedCharacterId, titleId);
+              const character = getCharacterById(selectedCharacterId, interaction.guildId);
+              statusLine = `<:success:1479234774861221898> Bought title **${titleItem.name}** for ${character?.name || selectedCharacterId}.`;
+            }
+          }
         }
 
         const shopView = buildShopView(interaction.guildId, interaction.user.id, page, statusLine);
@@ -9340,6 +9753,7 @@ client.on("interactionCreate", async (interaction) => {
           { name: "/setup give-item ...", desc: "Give inventory items to a user" },
           { name: "/setup set-item-shop ...", desc: "Add/remove inventory items from /shop" },
           { name: "/setup add-role-shop-item", desc: "Open role shop item manager" },
+          { name: "/setup manage-titles", desc: "Open title shop manager" },
           { name: "/character clear-webhooks", desc: "Clear webhook cache" },
           { name: "/bot-say [message] [channel]", desc: "Send message as bot" }
         ];
@@ -9422,6 +9836,68 @@ client.on("interactionCreate", async (interaction) => {
           flags: 32768
         });
       }
+    }
+
+    if (
+      interaction.customId.startsWith("select_title_") &&
+      Array.isArray(interaction.values)
+    ) {
+      const characterId = interaction.customId.replace("select_title_", "");
+      const character = getCharacterById(characterId, interaction.guildId);
+
+      if (!character) {
+        await interaction.reply({
+          content: "Character no longer exists.",
+          flags: 32768,
+          ephemeral: true
+        });
+        return;
+      }
+
+      const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
+      const isOwner = getAssignedUserId(interaction.guildId, characterId) === interaction.user.id;
+
+      if (!isAdmin && !isOwner) {
+        await interaction.reply({
+          content: "You do not have permission to edit this character.",
+          flags: 32768,
+          ephemeral: true
+        });
+        return;
+      }
+
+      const selectedValue = interaction.values[0];
+      if (selectedValue === "none") {
+        character.selectedTitle = "";
+      } else {
+        const ownedIds = getOwnedTitleIds(interaction.guildId, characterId);
+        if (!ownedIds.includes(selectedValue)) {
+          await interaction.reply({
+            content: "You don't own that title.",
+            flags: 32768,
+            ephemeral: true
+          });
+          return;
+        }
+        character.selectedTitle = selectedValue;
+      }
+
+      writeJson(CHARACTERS_PATH, characters);
+
+      const titleDisplay = character.selectedTitle
+        ? (getTitleById(interaction.guildId, character.selectedTitle)?.name || "Unknown")
+        : "None";
+
+      await interaction.reply({
+        flags: 32768,
+        components: buildComponentsBox(
+          "Title Updated",
+          [`${SUCCESSFUL_EMOJI_RAW} **${character.name}**'s title set to: **${titleDisplay}**`],
+          []
+        ),
+        ephemeral: true
+      });
+      return;
     }
 
     if (
@@ -9927,6 +10403,77 @@ client.on("interactionCreate", async (interaction) => {
           components: buildRoleShopAdminPanel(
             interaction.guildId,
             `<:success:1479234774861221898> Added **${name}** for <@&${role.id}> at **${price} ${POINTS_EMOJI_RAW}** using ${getRoleItemWalletLabel(walletType)}.`
+          ),
+          ephemeral: true
+        });
+        return;
+      }
+
+      if (interaction.customId === "titles:add:modal") {
+        if (!interaction.inGuild() || !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+          await acknowledgeInteractionSilently(interaction);
+          return;
+        }
+
+        const getFieldValue = (customId) => {
+          if (interaction.fields?.getTextInputValue) {
+            try {
+              return interaction.fields.getTextInputValue(customId);
+            } catch (error) {
+              return "";
+            }
+          }
+          return "";
+        };
+
+        const titleName = getFieldValue("name").trim();
+        const titleDescription = getFieldValue("description").trim();
+        const rawPrice = getFieldValue("price").trim();
+        const titlePrice = Number.parseInt(rawPrice, 10);
+
+        if (!titleName || !titleDescription || !Number.isFinite(titlePrice) || titlePrice <= 0) {
+          await interaction.reply({
+            flags: 32768,
+            components: buildTitleAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} Invalid form values. Check name, description, and numeric price.`
+            ),
+            ephemeral: true
+          });
+          return;
+        }
+
+        const duplicate = getTitlesForGuild(interaction.guildId).find(
+          (t) => t.name.toLowerCase() === titleName.toLowerCase()
+        );
+        if (duplicate) {
+          await interaction.reply({
+            flags: 32768,
+            components: buildTitleAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} A title with that name already exists.`
+            ),
+            ephemeral: true
+          });
+          return;
+        }
+
+        titles.push({
+          id: generateTitleId(),
+          guildId: interaction.guildId,
+          name: titleName,
+          description: titleDescription,
+          price: titlePrice,
+          createdBy: interaction.user.id,
+          createdAt: new Date().toISOString()
+        });
+        saveTitles();
+
+        await interaction.reply({
+          flags: 32768,
+          components: buildTitleAdminPanel(
+            interaction.guildId,
+            `<:success:1479234774861221898> Added title **${titleName}** for **${titlePrice} ${POINTS_EMOJI_RAW}**.`
           ),
           ephemeral: true
         });
@@ -10929,6 +11476,100 @@ client.on("interactionCreate", async (interaction) => {
             { ephemeral: true }
           );
         }
+        return;
+      }
+
+      if (interaction.customId.startsWith("edit_title_")) {
+        const characterId = interaction.customId.replace("edit_title_", "");
+        const character = getCharacterById(characterId, interaction.guildId);
+
+        if (!character) {
+          await replyComponentsV2(
+            interaction,
+            "Select Title",
+            [`Character with ID "${characterId}" does not exist.`],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
+        const isOwner = getAssignedUserId(interaction.guildId, characterId) === interaction.user.id;
+
+        if (!isAdmin && !isOwner) {
+          await replyComponentsV2(
+            interaction,
+            "Select Title",
+            ["You do not have permission to edit this character."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        const ownedIds = getOwnedTitleIds(interaction.guildId, characterId);
+        if (ownedIds.length === 0) {
+          await replyComponentsV2(
+            interaction,
+            "Select Title",
+            ["This character doesn't own any titles yet. Buy titles from `/shop`."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        const options = [
+          { label: "No Title", value: "none", description: "Remove current title" }
+        ];
+        for (const titleId of ownedIds) {
+          const titleItem = getTitleById(interaction.guildId, titleId);
+          if (titleItem) {
+            options.push({
+              label: titleItem.name,
+              value: titleId,
+              description: titleItem.description.slice(0, 100),
+              default: character.selectedTitle === titleId
+            });
+          }
+        }
+
+        if (options.length === 1) {
+          await replyComponentsV2(
+            interaction,
+            "Select Title",
+            ["This character's owned titles no longer exist in this server. Buy titles from `/shop`."],
+            [],
+            { ephemeral: true }
+          );
+          return;
+        }
+
+        const titleSelectComponents = [
+          { type: 10, content: `## Select Title for ${character.name}` },
+          { type: 14, divider: true, spacing: 1 },
+          { type: 10, content: `Current title: **${character.selectedTitle ? (getTitleById(interaction.guildId, character.selectedTitle)?.name || "Unknown") : "None"}**` },
+          {
+            type: 1,
+            components: [
+              {
+                type: 3,
+                custom_id: `select_title_${characterId}`,
+                placeholder: "Choose a title...",
+                min_values: 1,
+                max_values: 1,
+                options: options
+              }
+            ]
+          }
+        ];
+
+        await interaction.reply({
+          flags: 32768,
+          components: [{ type: 17, components: titleSelectComponents }],
+          ephemeral: true
+        });
         return;
       }
 
