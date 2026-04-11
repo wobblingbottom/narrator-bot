@@ -4924,11 +4924,6 @@ async function generateCharacterCardImage(character, options = {}) {
   <text x="154" y="516" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="11" letter-spacing="2" text-transform="uppercase">BOND</text>
   <text x="154" y="538" text-anchor="middle" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="17">${safeRelationship}</text>
 
-  <!-- Owner -->
-  <line x1="80" y1="556" x2="228" y2="556" stroke="${palette.border}" stroke-opacity="0.2" stroke-width="1"/>
-  <text x="154" y="572" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="11" letter-spacing="2" text-transform="uppercase">OWNER</text>
-  <text x="154" y="568" text-anchor="middle" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="15" dy="22">${safeOwner}</text>
-
   <!-- ===== RIGHT COLUMN ===== -->
 
   <!-- CHARACTER NAME -->
@@ -4974,7 +4969,10 @@ async function generateCharacterCardImage(character, options = {}) {
   <text x="${cx + 90 + xpBarWidth / 2}" y="${statsY + 13}" text-anchor="middle" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="9" font-weight="600">${levelInfo.currentXp} / ${levelInfo.nextXp} XP</text>
 
   <text x="${cx + 310}" y="${statsY + 14}" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="12" letter-spacing="2">MESSAGES</text>
-  <text x="${cx + 400}" y="${statsY + 14}" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="18" font-weight="600">${points}</text>`;
+  <text x="${cx + 400}" y="${statsY + 14}" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="18" font-weight="600">${points}</text>
+
+  <text x="${cx + 480}" y="${statsY + 14}" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="12" letter-spacing="2">OWNER</text>
+  <text x="${cx + 540}" y="${statsY + 14}" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="16" font-weight="600">${safeOwner}</text>`;
   })()}
 
   <!-- Bottom flourish -->
