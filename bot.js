@@ -139,6 +139,7 @@ const itemCooldowns = new Map();
 
 const messagePointsCooldowns = new Map();
 const characterPointsCooldowns = new Map();
+const reportCooldowns = new Map();
 const webhookAutoDeleteTimers = new Map();
 const webhookSlotCursorByChannel = new Map();
 const entitlementSlotBonusByScopeUser = new Map();
@@ -6394,7 +6395,19 @@ client.on("interactionCreate", async (interaction) => {
           if (cardBuffer) {
             await interaction.editReply({
               content: `**${character.name}** • Character Profile`,
-              files: [{ attachment: cardBuffer, name: `character-profile-${character.id}.png` }]
+              files: [{ attachment: cardBuffer, name: `character-profile-${character.id}.png` }],
+              components: [{
+                type: 17,
+                components: [{
+                  type: 1,
+                  components: [{
+                    type: 2,
+                    style: 4,
+                    label: "Report",
+                    custom_id: `report_character_${character.id}`
+                  }]
+                }]
+              }]
             });
             return;
           }
@@ -11265,6 +11278,71 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.isButton()) {
+      if (interaction.customId.startsWith("report_character_")) {
+        const characterId = interaction.customId.replace("report_character_", "");
+        const character = getCharacterById(characterId, interaction.guildId);
+
+        // Always show "Report sent" and disable the button
+        try {
+          await interaction.update({
+            components: [{
+              type: 17,
+              components: [{
+                type: 1,
+                components: [{
+                  type: 2,
+                  style: 2,
+                  label: "Report sent",
+                  custom_id: `report_character_${characterId}`,
+                  disabled: true
+                }]
+              }]
+            }]
+          });
+        } catch (err) {
+          // Interaction may have expired
+        }
+
+        if (!character || !interaction.inGuild()) return;
+
+        // 1-hour cooldown per user per guild
+        const cooldownKey = `${interaction.guildId}:${interaction.user.id}`;
+        const now = Date.now();
+        const lastReport = reportCooldowns.get(cooldownKey) || 0;
+        if (now - lastReport < 3600000) return;
+        reportCooldowns.set(cooldownKey, now);
+
+        const logsChannelId = getLogsChannelIdForGuild(interaction.guildId);
+        if (!logsChannelId) return;
+
+        try {
+          const logsChannel = await interaction.client.channels.fetch(logsChannelId);
+          if (!logsChannel?.isTextBased()) return;
+
+          const adminRoleIds = getAdminRoleIds(interaction.guildId);
+          const rolePings = adminRoleIds.map((id) => `<@&${id}>`).join(" ") || "No bot manager roles configured";
+          const ownerId = getAssignedUserId(interaction.guildId, characterId);
+
+          const reportComponents = [
+            { type: 10, content: "## \u26a0\ufe0f Character Report" },
+            { type: 14, divider: true, spacing: 1 },
+            { type: 10, content: `${BULLET_EMOJI_RAW} **Character:** ${character.name} (\`${characterId}\`)` },
+            { type: 10, content: `${BULLET_EMOJI_RAW} **Owner:** ${ownerId ? `<@${ownerId}>` : "Unassigned"}` },
+            { type: 10, content: `${BULLET_EMOJI_RAW} **Reported by:** <@${interaction.user.id}>` },
+            { type: 14, divider: true, spacing: 1 },
+            { type: 10, content: rolePings }
+          ];
+
+          await logsChannel.send({
+            components: [{ type: 17, components: reportComponents }],
+            allowedMentions: { roles: adminRoleIds }
+          });
+        } catch (logError) {
+          console.error("Failed to send report to logs channel:", logError);
+        }
+        return;
+      }
+
       if (interaction.customId.startsWith("edit_basic_")) {
         const characterId = interaction.customId.replace("edit_basic_", "");
         const character = getCharacterById(characterId, interaction.guildId);
