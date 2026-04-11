@@ -11,6 +11,7 @@ services:
       GUILD_ID: ${GUILD_ID:-}
       CURRENCY_EMOJI: ${CURRENCY_EMOJI:-🍬}
       NODE_TLS_REJECT_UNAUTHORIZED: ${NODE_TLS_REJECT_UNAUTHORIZED:-0}
+      DISCORD_PREMIUM_SLOT_SKUS: ${DISCORD_PREMIUM_SLOT_SKUS:-}
     volumes:
       - ./data:/app/data
     restart: unless-stopped
