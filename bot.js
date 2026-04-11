@@ -5996,20 +5996,8 @@ client.on("interactionCreate", async (interaction) => {
           });
 
           if (cardBuffer) {
-            const detailLines = [
-              character.bio ? `${BULLET_EMOJI_RAW} **Bio:** ${character.bio}` : "",
-              character.personality ? `${BULLET_EMOJI_RAW} **Personality:** ${character.personality}` : "",
-              character.backstory ? `${BULLET_EMOJI_RAW} **Backstory:** ${character.backstory}` : "",
-              character.age ? `${BULLET_EMOJI_RAW} **Age:** ${character.age}` : "",
-              character.race ? `${BULLET_EMOJI_RAW} **Race/Species:** ${character.race}` : "",
-              character.class ? `${BULLET_EMOJI_RAW} **Class:** ${character.class}` : "",
-              character.relationship ? `${BULLET_EMOJI_RAW} **Status:** ${character.relationship}` : "",
-              isPicked ? `${BULLET_EMOJI_RAW} **Picked:** Yes` : "",
-              `${BULLET_EMOJI_RAW} **Theme:** ${theme}`
-            ].filter((line) => line);
-
             await interaction.reply({
-              content: `## ${character.name}\n${detailLines.join("\n")}`,
+              content: `**${character.name}**`,
               files: [{ attachment: cardBuffer, name: `character-profile-${character.id}.png` }],
               allowedMentions: { parse: [] }
             });
