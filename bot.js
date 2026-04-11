@@ -11410,6 +11410,10 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       if (interaction.customId.startsWith("rpt_del_")) {
+        if (!hasAdminAccess(interaction)) {
+          await interaction.reply({ content: "You do not have permission to delete characters.", flags: 64 });
+          return;
+        }
         const characterId = interaction.customId.replace("rpt_del_", "");
         const character = getCharacterById(characterId, interaction.guildId);
 
@@ -11438,6 +11442,10 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       if (interaction.customId.startsWith("rpt_delconfirm_")) {
+        if (!hasAdminAccess(interaction)) {
+          await interaction.update({ content: "You do not have permission to delete characters.", components: [] });
+          return;
+        }
         const characterId = interaction.customId.replace("rpt_delconfirm_", "");
         const character = getCharacterById(characterId, interaction.guildId);
 
