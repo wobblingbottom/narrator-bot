@@ -5993,6 +5993,8 @@ client.on("interactionCreate", async (interaction) => {
             return;
           }
 
+          await interaction.deferReply();
+
           const ownerId = getAssignedUserId(interaction.guildId, character.id);
           let ownerDisplay = "Unassigned";
           if (ownerId) {
@@ -6008,27 +6010,29 @@ client.on("interactionCreate", async (interaction) => {
             ? getSelectedCharacterId(interaction.guildId, ownerId) === character.id
             : false;
 
-          const cardPageOneBuffer = await generateCharacterCardImage(character, {
-            theme,
-            accentColor: accentInput,
-            showBackstory,
-            ownerDisplay,
-            pickedByDisplay: ownerDisplay,
-            isPicked,
-            points: getCharacterPoints(interaction.guildId, character.id),
-            page: 1
-          });
-
-          const cardPageTwoBuffer = await generateCharacterCardImage(character, {
-            theme,
-            accentColor: accentInput,
-            showBackstory,
-            ownerDisplay,
-            pickedByDisplay: ownerDisplay,
-            isPicked,
-            points: getCharacterPoints(interaction.guildId, character.id),
-            page: 2
-          });
+          const characterPointsValue = getCharacterPoints(interaction.guildId, character.id);
+          const [cardPageOneBuffer, cardPageTwoBuffer] = await Promise.all([
+            generateCharacterCardImage(character, {
+              theme,
+              accentColor: accentInput,
+              showBackstory,
+              ownerDisplay,
+              pickedByDisplay: ownerDisplay,
+              isPicked,
+              points: characterPointsValue,
+              page: 1
+            }),
+            generateCharacterCardImage(character, {
+              theme,
+              accentColor: accentInput,
+              showBackstory,
+              ownerDisplay,
+              pickedByDisplay: ownerDisplay,
+              isPicked,
+              points: characterPointsValue,
+              page: 2
+            })
+          ]);
 
           if (cardPageOneBuffer || cardPageTwoBuffer) {
             const files = [];
@@ -6039,18 +6043,16 @@ client.on("interactionCreate", async (interaction) => {
               files.push({ attachment: cardPageTwoBuffer, name: `character-profile-${character.id}-p2.png` });
             }
 
-            await interaction.reply({
+            await interaction.editReply({
               content: `**${character.name}** • Profile Pages ${files.length === 2 ? "1/2 + 2/2" : "generated"}`,
-              files,
-              allowedMentions: { parse: [] }
+              files
             });
             return;
           }
 
-          await replyComponentsV2(
-            interaction,
-            character.name,
-            [
+          await interaction.editReply({
+            content: [
+              `**${character.name}**`,
               "Could not generate profile card image right now. Showing text details instead.",
               character.bio ? `${BULLET_EMOJI_RAW} **Bio:** ${character.bio}` : "",
               character.personality ? `${BULLET_EMOJI_RAW} **Personality:** ${character.personality}` : "",
@@ -6059,9 +6061,8 @@ client.on("interactionCreate", async (interaction) => {
               character.race ? `${BULLET_EMOJI_RAW} **Race/Species:** ${character.race}` : "",
               character.class ? `${BULLET_EMOJI_RAW} **Class:** ${character.class}` : "",
               character.relationship ? `${BULLET_EMOJI_RAW} **Status:** ${character.relationship}` : ""
-            ].filter((line) => line),
-            []
-          );
+            ].filter((line) => line).join("\n")
+          });
           return;
         }
 
