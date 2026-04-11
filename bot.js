@@ -6400,7 +6400,7 @@ client.on("interactionCreate", async (interaction) => {
                 type: 1,
                 components: [{
                   type: 2,
-                  style: 4,
+                  style: 2,
                   label: "Report",
                   custom_id: `report_character_${character.id}`
                 }]
