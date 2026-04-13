@@ -89,6 +89,12 @@ const DISCORD_PREMIUM_SLOT_SKU_IDS = new Set(
     .map((value) => value.trim())
     .filter((value) => value.length > 0)
 );
+const PREMIUM_USER_IDS = new Set(
+  String(process.env.PREMIUM_USERS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+);
 const DISCORD_PREMIUM_PURCHASE_URL = String(process.env.DISCORD_PREMIUM_PURCHASE_URL || "").trim();
 const CURRENCY_EMOJI_RAW = (process.env.CURRENCY_EMOJI || "<:sundrop:1479231387864399963>").trim();
 const SHOP_ITEM_EMOJI_RAW = "<:pointer:1478835623853949109>";
@@ -2636,6 +2642,11 @@ function getPremiumSlotBonus(guildId, userId) {
     return 0;
   }
 
+  // Check manual premium grants first
+  if (PREMIUM_USER_IDS.has(userId)) {
+    return DISCORD_PREMIUM_SUBSCRIPTION_SLOTS;
+  }
+
   return entitlementSlotBonusByScopeUser.get(getUserSlotsKey(guildId, userId)) || 0;
 }
 
@@ -4308,23 +4319,6 @@ async function registerCommands() {
       subcommand
         .setName("manage-titles")
         .setDescription("Open title shop manager (create/delete purchasable titles)")
-    )
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName("grant-premium")
-        .setDescription("Grant/revoke free premium to a user (bot creator only)")
-        .addUserOption((option) =>
-          option
-            .setName("user")
-            .setDescription("User to grant/revoke premium")
-            .setRequired(true)
-        )
-        .addBooleanOption((option) =>
-          option
-            .setName("grant")
-            .setDescription("true to grant, false to revoke")
-            .setRequired(true)
-        )
     )
     .addSubcommand((subcommand) =>
       subcommand
@@ -8142,54 +8136,6 @@ client.on("interactionCreate", async (interaction) => {
             components: buildTitleAdminPanel(interaction.guildId),
             ephemeral: true
           });
-          return;
-        }
-
-        if (subcommand === "grant-premium") {
-          if (interaction.user.id !== BOT_OWNER_ID) {
-            await replyComponentsV2(
-              interaction,
-              "Grant Premium",
-              ["Only the bot creator can use this command."],
-              [],
-              { ephemeral: true }
-            );
-            return;
-          }
-
-          if (!interaction.inGuild()) {
-            await replyComponentsV2(
-              interaction,
-              "Grant Premium",
-              ["This command can only be used in a server."],
-              [],
-              { ephemeral: true }
-            );
-            return;
-          }
-
-          const targetUser = interaction.options.getUser("user", true);
-          const shouldGrant = interaction.options.getBoolean("grant", true);
-
-          if (shouldGrant) {
-            grantPremiumToUser(interaction.guildId, targetUser.id);
-            await replyComponentsV2(
-              interaction,
-              "Grant Premium",
-              [`${SUCCESSFUL_EMOJI_RAW} Granted free premium (+5 character slots) to <@${targetUser.id}>.`],
-              [],
-              { ephemeral: true }
-            );
-          } else {
-            revokePremiumFromUser(interaction.guildId, targetUser.id);
-            await replyComponentsV2(
-              interaction,
-              "Revoke Premium",
-              [`${SUCCESSFUL_EMOJI_RAW} Revoked free premium from <@${targetUser.id}>.`],
-              [],
-              { ephemeral: true }
-            );
-          }
           return;
         }
 
