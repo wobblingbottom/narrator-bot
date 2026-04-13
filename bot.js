@@ -4311,6 +4311,23 @@ async function registerCommands() {
     )
     .addSubcommand((subcommand) =>
       subcommand
+        .setName("grant-premium")
+        .setDescription("Grant/revoke free premium to a user (bot creator only)")
+        .addUserOption((option) =>
+          option
+            .setName("user")
+            .setDescription("User to grant/revoke premium")
+            .setRequired(true)
+        )
+        .addBooleanOption((option) =>
+          option
+            .setName("grant")
+            .setDescription("true to grant, false to revoke")
+            .setRequired(true)
+        )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
         .setName("create-item")
         .setDescription("Create an inventory item")
         .addStringOption((option) =>
@@ -8125,6 +8142,54 @@ client.on("interactionCreate", async (interaction) => {
             components: buildTitleAdminPanel(interaction.guildId),
             ephemeral: true
           });
+          return;
+        }
+
+        if (subcommand === "grant-premium") {
+          if (interaction.user.id !== BOT_OWNER_ID) {
+            await replyComponentsV2(
+              interaction,
+              "Grant Premium",
+              ["Only the bot creator can use this command."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          if (!interaction.inGuild()) {
+            await replyComponentsV2(
+              interaction,
+              "Grant Premium",
+              ["This command can only be used in a server."],
+              [],
+              { ephemeral: true }
+            );
+            return;
+          }
+
+          const targetUser = interaction.options.getUser("user", true);
+          const shouldGrant = interaction.options.getBoolean("grant", true);
+
+          if (shouldGrant) {
+            grantPremiumToUser(interaction.guildId, targetUser.id);
+            await replyComponentsV2(
+              interaction,
+              "Grant Premium",
+              [`${SUCCESSFUL_EMOJI_RAW} Granted free premium (+5 character slots) to <@${targetUser.id}>.`],
+              [],
+              { ephemeral: true }
+            );
+          } else {
+            revokePremiumFromUser(interaction.guildId, targetUser.id);
+            await replyComponentsV2(
+              interaction,
+              "Revoke Premium",
+              [`${SUCCESSFUL_EMOJI_RAW} Revoked free premium from <@${targetUser.id}>.`],
+              [],
+              { ephemeral: true }
+            );
+          }
           return;
         }
 
