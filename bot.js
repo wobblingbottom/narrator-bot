@@ -5318,7 +5318,7 @@ function updateServerCountPresence() {
     client.user.setPresence({
       activities: [
         {
-          name: `Narrating ${guildCount} server${suffix}`,
+          name: `/help in ${guildCount} server${suffix}`,
           type: ActivityType.Custom
         }
       ],
