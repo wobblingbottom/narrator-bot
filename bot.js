@@ -7568,12 +7568,12 @@ client.on("interactionCreate", async (interaction) => {
             const replyJumpUrl = `https://discord.com/channels/${interaction.guildId}/${referencedMessage.channelId}/${referencedMessage.id}`;
             const safeAuthor = escapeLinkText(replyAuthor).slice(0, 40) || "unknown";
             const safePreview = escapeLinkText(preview);
-            replyHeader = `-# ↪ [Replying to ${safeAuthor}: ${safePreview}](${replyJumpUrl})\n`;
+            replyHeader = `-# ↪ [Replying to ${safeAuthor}: ${safePreview}](${replyJumpUrl})`;
 
             if (replyPingTargetId) {
-              replyPrefix = `${replyHeader}<@${replyPingTargetId}>\n`;
+              replyPrefix = `${replyHeader} <@${replyPingTargetId}>\n`;
             } else {
-              replyPrefix = replyHeader;
+              replyPrefix = `${replyHeader}\n`;
             }
 
             const formattedBody = outboundContent;
@@ -7792,8 +7792,8 @@ client.on("interactionCreate", async (interaction) => {
 
           if (replyHeader) {
             const replyPrefix = replyPingEnabled && replyPingTargetId
-              ? `${replyHeader}<@${replyPingTargetId}>\n`
-              : replyHeader;
+              ? `${replyHeader} <@${replyPingTargetId}>\n`
+              : `${replyHeader}\n`;
             const allowedBodyLength = Math.max(0, 2000 - replyPrefix.length);
             const trimmedBody = updatedMessage.length > allowedBodyLength
               ? `${updatedMessage.slice(0, Math.max(0, allowedBodyLength - 3)).trimEnd()}...`
