@@ -7417,7 +7417,7 @@ client.on("interactionCreate", async (interaction) => {
 
         if (replyToMessageId) {
           referencedMessage = await withTimeout(
-            channel.messages.fetch(replyToMessageId),
+            channel.messages.fetch(replyToMessageId, { force: true }),
             10000,
             "Reply target lookup timed out."
           ).catch(() => null);
@@ -7439,7 +7439,7 @@ client.on("interactionCreate", async (interaction) => {
               .find(
                 (entry) =>
                   entry?.guildId === interaction.guildId &&
-                  entry?.messageId === replyToMessageId &&
+                  entry?.replyToMessageId === replyToMessageId &&
                   entry?.source === "say"
               );
 
