@@ -987,6 +987,50 @@ function removeWebhookFromChannelCache(channelId, webhookId) {
   }
 }
 
+async function cleanupStaleWebhooks() {
+  try {
+    const botMember = await client.user;
+    const sayChannelIds = getSayAllowedChannelIds();
+    const oneMinuteAgo = Date.now() - 60000;
+    let deletedCount = 0;
+
+    for (const channelId of sayChannelIds) {
+      try {
+        const channel = await client.channels.fetch(channelId).catch(() => null);
+        if (!channel?.isTextBased()) {
+          continue;
+        }
+
+        const targetChannel = channel.isThread() ? channel.parent : channel;
+        const fetchedWebhooks = await targetChannel.fetchWebhooks().catch(() => null);
+        if (!fetchedWebhooks) {
+          continue;
+        }
+
+        for (const webhook of fetchedWebhooks.values()) {
+          // Check if it's a bot-owned webhook and older than 1 minute
+          if (webhook.owner?.id === botMember.id && webhook.createdTimestamp < oneMinuteAgo) {
+            try {
+              await webhook.delete("Cleanup stale webhook from bot restart.");
+              deletedCount++;
+            } catch (error) {
+              // ignore individual deletion failures
+            }
+          }
+        }
+      } catch (error) {
+        // ignore per-channel failures
+      }
+    }
+
+    if (deletedCount > 0) {
+      console.log(`[Startup] Cleaned up ${deletedCount} stale webhooks from previous sessions.`);
+    }
+  } catch (error) {
+    console.error("[Startup] Failed to cleanup stale webhooks:", error.message);
+  }
+}
+
 function scheduleWebhookAutoDelete(channelId, webhookInfo) {
   if (!channelId || !webhookInfo?.id || !webhookInfo?.token) {
     return;
@@ -5452,6 +5496,15 @@ client.once("clientReady", () => {
   // Premium daily rewards: run once on startup, then check every hour
   distributePremiumDailyRewards();
   setInterval(distributePremiumDailyRewards, 60 * 60 * 1000);
+
+  // Cleanup stale webhooks that didn't get deleted due to bot restart
+  (async () => {
+    try {
+      await cleanupStaleWebhooks();
+    } catch (error) {
+      console.error("[Startup] Webhook cleanup error:", error);
+    }
+  })();
 });
 
 client.on("guildCreate", () => {
