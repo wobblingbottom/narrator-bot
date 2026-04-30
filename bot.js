@@ -992,7 +992,11 @@ function scheduleWebhookAutoDelete(channelId, webhookInfo) {
     return;
   }
 
-  clearWebhookAutoDeleteTimer(webhookInfo.id);
+  // Don't reschedule if already scheduled
+  if (webhookAutoDeleteTimers.has(webhookInfo.id)) {
+    console.log(`[Webhook Auto-Delete] Timer already scheduled for webhook ${webhookInfo.id}`);
+    return;
+  }
 
   const timer = setTimeout(async () => {
     try {
@@ -1012,6 +1016,7 @@ function scheduleWebhookAutoDelete(channelId, webhookInfo) {
   }, WEBHOOK_AUTO_DELETE_MS);
 
   webhookAutoDeleteTimers.set(webhookInfo.id, { timer, channelId });
+  console.log(`[Webhook Auto-Delete] Scheduled deletion for webhook ${webhookInfo.id} in ${WEBHOOK_AUTO_DELETE_MS}ms`);
 }
 
 function escapeRegex(value) {
