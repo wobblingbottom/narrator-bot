@@ -66,7 +66,9 @@ const TRADE_PROPOSALS_PATH = path.join(DATA_DIR, "tradeProposals.json");
 const TITLES_PATH = path.join(DATA_DIR, "titles.json");
 const USER_TITLES_PATH = path.join(DATA_DIR, "userTitles.json");
 const ECONOMY_DB_PATH = path.join(DATA_DIR, "economy.sqlite");
+const PREMIUM_DAILY_REWARD_PATH = path.join(DATA_DIR, "premiumDailyReward.json");
 
+const PREMIUM_DAILY_POINTS = 10;
 const MESSAGE_POINTS_MIN = 0.25;
 const MESSAGE_POINTS_MAX = 1;
 const POINTS_PER_CHARACTER_MESSAGE = 2;
@@ -2309,6 +2311,15 @@ function logMessage(userId, characterName, message, channelId, guildId, metadata
   return logEntry;
 }
 
+function extractSayReplyHeader(content) {
+  if (typeof content !== "string" || content.length === 0) {
+    return "";
+  }
+
+  const headerMatch = content.match(/^(-# ↪ \[Replying to [^\n]+\]\(https?:\/\/discord\.com\/channels\/\d{17,20}\/\d{17,20}\/\d{17,20}\)\r?\n)/);
+  return headerMatch ? headerMatch[1].replace(/\r\n/g, "\n") : "";
+}
+
 function isCharacterVisibleInGuild(character, guildId) {
   if (!guildId) {
     return false;
@@ -2758,6 +2769,52 @@ function formatPoints(value) {
 
 function formatPointsWithEmoji(value) {
   return `${formatPoints(value)} ${POINTS_EMOJI_RAW}`;
+}
+
+function distributePremiumDailyRewards() {
+  try {
+    let lastRewardDate = "";
+    try {
+      const data = readJson(PREMIUM_DAILY_REWARD_PATH, {});
+      lastRewardDate = data.lastDate || "";
+    } catch (_) {}
+
+    const today = new Date().toISOString().slice(0, 10);
+    if (lastRewardDate === today) {
+      return;
+    }
+
+    let rewardCount = 0;
+
+    // Award to manual premium users (PREMIUM_USERS env)
+    for (const userId of PREMIUM_USER_IDS) {
+      for (const [, guild] of client.guilds.cache) {
+        const member = guild.members.cache.get(userId);
+        if (member) {
+          addPoints(guild.id, userId, PREMIUM_DAILY_POINTS);
+          rewardCount++;
+        }
+      }
+    }
+
+    // Award to Discord subscription premium users
+    for (const [scopeKey] of entitlementSlotBonusByScopeUser) {
+      const parts = scopeKey.split(":");
+      if (parts.length < 2) continue;
+      const guildId = parts[0];
+      const userId = parts[1];
+      if (PREMIUM_USER_IDS.has(userId)) continue; // already awarded above
+      addPoints(guildId, userId, PREMIUM_DAILY_POINTS);
+      rewardCount++;
+    }
+
+    writeJson(PREMIUM_DAILY_REWARD_PATH, { lastDate: today });
+    if (rewardCount > 0) {
+      console.log(`[Premium Daily] Awarded ${PREMIUM_DAILY_POINTS} points to ${rewardCount} premium user(s).`);
+    }
+  } catch (error) {
+    console.error("Failed to distribute premium daily rewards:", error);
+  }
 }
 
 function getRandomMessagePointsReward() {
@@ -5377,6 +5434,10 @@ client.once("clientReady", () => {
       }
     })();
   }
+
+  // Premium daily rewards: run once on startup, then check every hour
+  distributePremiumDailyRewards();
+  setInterval(distributePremiumDailyRewards, 60 * 60 * 1000);
 });
 
 client.on("guildCreate", () => {
@@ -7396,6 +7457,7 @@ client.on("interactionCreate", async (interaction) => {
           });
 
           let outboundContent = message;
+          let replyHeader = "";
           if (referencedMessage) {
             const escapeLinkText = (text) => String(text || "").replace(/[\\\[\]\(\)]/g, "\\$&");
             const stripSubtextPrefix = (text) => String(text || "")
@@ -7474,7 +7536,7 @@ client.on("interactionCreate", async (interaction) => {
             const replyJumpUrl = `https://discord.com/channels/${interaction.guildId}/${referencedMessage.channelId}/${referencedMessage.id}`;
             const safeAuthor = escapeLinkText(replyAuthor).slice(0, 40) || "unknown";
             const safePreview = escapeLinkText(preview);
-            const replyHeader = `-# ↪ [Replying to ${safeAuthor}: ${safePreview}](${replyJumpUrl})\n`;
+            replyHeader = `-# ↪ [Replying to ${safeAuthor}: ${safePreview}](${replyJumpUrl})\n`;
 
             const formattedBody = outboundContent;
 
@@ -7528,6 +7590,8 @@ client.on("interactionCreate", async (interaction) => {
             webhookToken: webhookInfo?.token || null,
             characterId: selectedCharacterId,
             threadId: channel.isThread() ? channel.id : null,
+            replyHeader: referencedMessage ? replyHeader : null,
+            replyToMessageId: referencedMessage?.id || null,
             source: "say"
           });
 
@@ -7630,6 +7694,7 @@ client.on("interactionCreate", async (interaction) => {
 
         const webhookId = String(targetLogEntry.webhookId || "").trim();
         const webhookToken = String(targetLogEntry.webhookToken || "").trim();
+        let replyHeader = typeof targetLogEntry.replyHeader === "string" ? targetLogEntry.replyHeader : "";
 
         if (!webhookId || !webhookToken) {
           await editComponentsV2(
@@ -7644,6 +7709,27 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
+        if (!replyHeader) {
+          const messageChannelId = String(targetLogEntry.threadId || targetLogEntry.channelId || "").trim();
+          if (messageChannelId) {
+            const messageChannel = await withTimeout(
+              interaction.guild.channels.fetch(messageChannelId),
+              8000,
+              "Edited message channel lookup timed out."
+            ).catch(() => null);
+
+            if (messageChannel?.isTextBased()) {
+              const existingMessage = await withTimeout(
+                messageChannel.messages.fetch(messageId),
+                8000,
+                "Edited message fetch timed out."
+              ).catch(() => null);
+
+              replyHeader = extractSayReplyHeader(existingMessage?.content || "");
+            }
+          }
+        }
+
         try {
           const webhookClient = new WebhookClient({
             id: webhookId,
@@ -7654,6 +7740,15 @@ client.on("interactionCreate", async (interaction) => {
             content: updatedMessage,
             allowedMentions: { parse: [] }
           };
+
+          if (replyHeader) {
+            const allowedBodyLength = Math.max(0, 2000 - replyHeader.length);
+            const trimmedBody = updatedMessage.length > allowedBodyLength
+              ? `${updatedMessage.slice(0, Math.max(0, allowedBodyLength - 3)).trimEnd()}...`
+              : updatedMessage;
+
+            webhookEditOptions.content = `${replyHeader}${trimmedBody}`;
+          }
 
           if (/^\d{17,20}$/.test(String(targetLogEntry.threadId || ""))) {
             webhookEditOptions.threadId = targetLogEntry.threadId;
