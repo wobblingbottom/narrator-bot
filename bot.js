@@ -2320,6 +2320,15 @@ function extractSayReplyHeader(content) {
   return headerMatch ? headerMatch[1].replace(/\r\n/g, "\n") : "";
 }
 
+function extractSayReplyPingTargetId(content) {
+  if (typeof content !== "string" || content.length === 0) {
+    return "";
+  }
+
+  const pingMatch = content.match(/^-# ↪ \[Replying to [^\n]+\]\(https?:\/\/discord\.com\/channels\/\d{17,20}\/\d{17,20}\/\d{17,20}\)\r?\n<@!?(\d{17,20})>\r?\n/);
+  return pingMatch ? pingMatch[1] : "";
+}
+
 function isCharacterVisibleInGuild(character, guildId) {
   if (!guildId) {
     return false;
@@ -3746,7 +3755,7 @@ function buildTutorialView(guildId, userId, page = 0) {
       lines: [
         "**Start roleplaying with /say**",
         `${BULLET_EMOJI_RAW} Run \`/say message:<text>\` to send as your picked character.`,
-        `${BULLET_EMOJI_RAW} Optional: add \`image\` and \`reply_to\` message ID.`,
+        `${BULLET_EMOJI_RAW} Optional: add \`image\`, \`reply_to\`, and \`ping\` (default: on).`,
         `${BULLET_EMOJI_RAW} Need to fix a typo? Use \`/say-edit message_id:<id> message:<text>\`.`,
         `${BULLET_EMOJI_RAW} You earn points from normal chat and from \`/say\`.`
       ]
@@ -4283,6 +4292,12 @@ async function registerCommands() {
       option
         .setName("reply_to")
         .setDescription("Optional message ID to reply to")
+        .setRequired(false)
+    )
+    .addBooleanOption((option) =>
+      option
+        .setName("ping")
+        .setDescription("Ping the replied-to user or character owner")
         .setRequired(false)
     );
 
@@ -7362,7 +7377,10 @@ client.on("interactionCreate", async (interaction) => {
         const imageAttachment = interaction.options.getAttachment("image", false);
         const replyToMessageIdRaw = interaction.options.getString("reply_to", false);
         const replyToMessageId = typeof replyToMessageIdRaw === "string" ? replyToMessageIdRaw.trim() : "";
+        const pingReplyTargetOption = interaction.options.getBoolean("ping", false);
+        const shouldPingReplyTarget = pingReplyTargetOption !== false;
         let referencedMessage = null;
+        let replyPingTargetId = "";
 
         if (replyToMessageId && !/^\d{17,20}$/.test(replyToMessageId)) {
           await editComponentsV2(
@@ -7405,6 +7423,19 @@ client.on("interactionCreate", async (interaction) => {
               []
             );
             return;
+          }
+
+          if (shouldPingReplyTarget) {
+            const trackedReplyLogEntry = [...messageLogs]
+              .reverse()
+              .find(
+                (entry) =>
+                  entry?.guildId === interaction.guildId &&
+                  entry?.messageId === replyToMessageId &&
+                  entry?.source === "say"
+              );
+
+            replyPingTargetId = String(trackedReplyLogEntry?.userId || referencedMessage.author?.id || "").trim();
           }
         }
 
@@ -7458,6 +7489,7 @@ client.on("interactionCreate", async (interaction) => {
 
           let outboundContent = message;
           let replyHeader = "";
+          let replyPrefix = "";
           if (referencedMessage) {
             const escapeLinkText = (text) => String(text || "").replace(/[\\\[\]\(\)]/g, "\\$&");
             const stripSubtextPrefix = (text) => String(text || "")
@@ -7538,21 +7570,29 @@ client.on("interactionCreate", async (interaction) => {
             const safePreview = escapeLinkText(preview);
             replyHeader = `-# ↪ [Replying to ${safeAuthor}: ${safePreview}](${replyJumpUrl})\n`;
 
+            if (replyPingTargetId) {
+              replyPrefix = `${replyHeader}<@${replyPingTargetId}>\n`;
+            } else {
+              replyPrefix = replyHeader;
+            }
+
             const formattedBody = outboundContent;
 
-            const allowedBodyLength = Math.max(0, 2000 - replyHeader.length);
+            const allowedBodyLength = Math.max(0, 2000 - replyPrefix.length);
             const trimmedBody = formattedBody.length > allowedBodyLength
               ? `${formattedBody.slice(0, Math.max(0, allowedBodyLength - 3)).trimEnd()}...`
               : formattedBody;
 
-            outboundContent = `${replyHeader}${trimmedBody}`;
+            outboundContent = `${replyPrefix}${trimmedBody}`;
           }
 
           const webhookOptions = {
             content: outboundContent,
             username: character.name,
             avatarURL: character.avatarUrl || undefined,
-            allowedMentions: { parse: [] }
+            allowedMentions: replyPingTargetId
+              ? { parse: [], users: [replyPingTargetId] }
+              : { parse: [] }
           };
 
           if (imageAttachment?.url) {
@@ -7592,6 +7632,8 @@ client.on("interactionCreate", async (interaction) => {
             threadId: channel.isThread() ? channel.id : null,
             replyHeader: referencedMessage ? replyHeader : null,
             replyToMessageId: referencedMessage?.id || null,
+            replyPingTargetId: replyPingTargetId || null,
+            replyPingEnabled: referencedMessage ? shouldPingReplyTarget : null,
             source: "say"
           });
 
@@ -7695,6 +7737,8 @@ client.on("interactionCreate", async (interaction) => {
         const webhookId = String(targetLogEntry.webhookId || "").trim();
         const webhookToken = String(targetLogEntry.webhookToken || "").trim();
         let replyHeader = typeof targetLogEntry.replyHeader === "string" ? targetLogEntry.replyHeader : "";
+        let replyPingTargetId = String(targetLogEntry.replyPingTargetId || "").trim();
+        const replyPingEnabled = targetLogEntry.replyPingEnabled !== false;
 
         if (!webhookId || !webhookToken) {
           await editComponentsV2(
@@ -7726,6 +7770,9 @@ client.on("interactionCreate", async (interaction) => {
               ).catch(() => null);
 
               replyHeader = extractSayReplyHeader(existingMessage?.content || "");
+              if (!replyPingTargetId) {
+                replyPingTargetId = extractSayReplyPingTargetId(existingMessage?.content || "");
+              }
             }
           }
         }
@@ -7738,16 +7785,21 @@ client.on("interactionCreate", async (interaction) => {
 
           const webhookEditOptions = {
             content: updatedMessage,
-            allowedMentions: { parse: [] }
+            allowedMentions: replyPingEnabled && replyPingTargetId
+              ? { parse: [], users: [replyPingTargetId] }
+              : { parse: [] }
           };
 
           if (replyHeader) {
-            const allowedBodyLength = Math.max(0, 2000 - replyHeader.length);
+            const replyPrefix = replyPingEnabled && replyPingTargetId
+              ? `${replyHeader}<@${replyPingTargetId}>\n`
+              : replyHeader;
+            const allowedBodyLength = Math.max(0, 2000 - replyPrefix.length);
             const trimmedBody = updatedMessage.length > allowedBodyLength
               ? `${updatedMessage.slice(0, Math.max(0, allowedBodyLength - 3)).trimEnd()}...`
               : updatedMessage;
 
-            webhookEditOptions.content = `${replyHeader}${trimmedBody}`;
+            webhookEditOptions.content = `${replyPrefix}${trimmedBody}`;
           }
 
           if (/^\d{17,20}$/.test(String(targetLogEntry.threadId || ""))) {
@@ -9844,7 +9896,7 @@ client.on("interactionCreate", async (interaction) => {
           { name: "/shop", desc: "Buy upgrades and other shop items" },
           { name: "/premium", desc: "Get premium purchase link + steps" },
           { name: "/tutorial", desc: "Step-by-step guide for using the bot" },
-          { name: "/say [message] [image] [reply_to]", desc: "Send message as your character with optional image/reply" },
+          { name: "/say [message] [image] [reply_to] [ping]", desc: "Send message as your character with optional image/reply ping" },
           { name: "/say-edit [message_id] [message]", desc: "Edit your tracked /say message by message ID" },
           { name: "/points", desc: "View your user/character points" },
           { name: "/leaderboard [type] [limit]", desc: "View user or character rankings" }
