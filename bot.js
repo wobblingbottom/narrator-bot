@@ -7571,7 +7571,7 @@ client.on("interactionCreate", async (interaction) => {
             replyHeader = `-# ↪ [Replying to ${safeAuthor}: ${safePreview}](${replyJumpUrl})\n`;
 
             if (replyPingTargetId) {
-              replyPrefix = `${replyHeader}<@${replyPingTargetId}>`;
+              replyPrefix = `${replyHeader}<@${replyPingTargetId}>\n`;
             } else {
               replyPrefix = replyHeader;
             }
@@ -7792,7 +7792,7 @@ client.on("interactionCreate", async (interaction) => {
 
           if (replyHeader) {
             const replyPrefix = replyPingEnabled && replyPingTargetId
-              ? `${replyHeader}<@${replyPingTargetId}>`
+              ? `${replyHeader}<@${replyPingTargetId}>\n`
               : replyHeader;
             const allowedBodyLength = Math.max(0, 2000 - replyPrefix.length);
             const trimmedBody = updatedMessage.length > allowedBodyLength
