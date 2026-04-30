@@ -7376,11 +7376,17 @@ client.on("interactionCreate", async (interaction) => {
         const message = formatRoleplayMessage(rawMessage);
         const imageAttachment = interaction.options.getAttachment("image", false);
         const replyToMessageIdRaw = interaction.options.getString("reply_to", false);
-        const replyToMessageId = typeof replyToMessageIdRaw === "string" ? replyToMessageIdRaw.trim() : "";
+        // Ensure we always get a fresh value and not a cached one
+        const replyToMessageId = (typeof replyToMessageIdRaw === "string" ? replyToMessageIdRaw.trim() : "").replace(/\s+/g, "");
         const pingReplyTargetOption = interaction.options.getBoolean("ping", false);
         const shouldPingReplyTarget = pingReplyTargetOption !== false;
         let referencedMessage = null;
         let replyPingTargetId = "";
+        
+        // Debug log to track what message ID is being used
+        if (replyToMessageId) {
+          console.log(`[/say debug] Guild: ${interaction.guildId}, User: ${interaction.user.id}, ReplyToMessageId: ${replyToMessageId}`);
+        }
 
         if (replyToMessageId && !/^\d{17,20}$/.test(replyToMessageId)) {
           await editComponentsV2(
@@ -7424,6 +7430,8 @@ client.on("interactionCreate", async (interaction) => {
             );
             return;
           }
+          
+          console.log(`[/say debug] Fetched message ID: ${referencedMessage.id}, Author: ${referencedMessage.author?.id}`);
 
           if (shouldPingReplyTarget) {
             const trackedReplyLogEntry = [...messageLogs]
@@ -7436,6 +7444,7 @@ client.on("interactionCreate", async (interaction) => {
               );
 
             replyPingTargetId = String(trackedReplyLogEntry?.userId || referencedMessage.author?.id || "").trim();
+            console.log(`[/say debug] Tracked entry found: ${!!trackedReplyLogEntry}, Using ping target: ${replyPingTargetId}`);
           }
         }
 
