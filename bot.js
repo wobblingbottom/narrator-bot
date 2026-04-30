@@ -7525,7 +7525,8 @@ client.on("interactionCreate", async (interaction) => {
             let previewSourceMessage = referencedMessage;
             let sourceText = stripSubtextPrefix(previewSourceMessage.content || previewSourceMessage.cleanContent || "");
 
-            if (/^↪\s/.test(sourceText)) {
+            // Only follow embedded links if NOT replying to a /say message
+            if (/^↪\s/.test(sourceText) && !referencedMessage._replyTargetLogEntry) {
               const embeddedLinkMatch = sourceText.match(/https?:\/\/discord\.com\/channels\/(\d{17,20})\/(\d{17,20})\/(\d{17,20})/i);
               if (embeddedLinkMatch) {
                 const linkedChannelId = embeddedLinkMatch[2];
@@ -7555,13 +7556,13 @@ client.on("interactionCreate", async (interaction) => {
 
             let replyAuthor = previewSourceMessage.author?.username || "unknown";
             
-            // If replying to a /say message, use the original reply header author info if available
+            // If replying to a /say message that was itself a reply, extract author from stored header
             if (referencedMessage._replyTargetLogEntry?.replyHeader) {
               const headerMatch = referencedMessage._replyTargetLogEntry.replyHeader.match(
-                /↪\s*\[?Replying to ([^:]+):/
+                /\[Replying to ([^\]:]+)/
               );
               if (headerMatch) {
-                replyAuthor = headerMatch[1];
+                replyAuthor = headerMatch[1].trim();
               }
             }
 
