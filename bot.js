@@ -993,6 +993,8 @@ async function cleanupStaleWebhooks() {
     const sayChannelIds = getSayAllowedChannelIds();
     const oneMinuteAgo = Date.now() - 60000;
     let deletedCount = 0;
+    
+    console.log(`[Startup] Checking ${sayChannelIds.length} /say channels for stale webhooks (older than 1 minute)`);
 
     for (const channelId of sayChannelIds) {
       try {
@@ -1004,28 +1006,33 @@ async function cleanupStaleWebhooks() {
         const targetChannel = channel.isThread() ? channel.parent : channel;
         const fetchedWebhooks = await targetChannel.fetchWebhooks().catch(() => null);
         if (!fetchedWebhooks) {
+          console.log(`[Startup] No webhooks found in channel ${channelId}`);
           continue;
         }
 
+        console.log(`[Startup] Found ${fetchedWebhooks.size} webhooks in channel ${channelId}`);
+        
         for (const webhook of fetchedWebhooks.values()) {
+          console.log(`[Startup] Webhook ${webhook.id}: owner=${webhook.owner?.id}, created=${new Date(webhook.createdTimestamp).toISOString()}, age=${Date.now() - webhook.createdTimestamp}ms`);
+          
           // Check if it's a bot-owned webhook and older than 1 minute
           if (webhook.owner?.id === botMember.id && webhook.createdTimestamp < oneMinuteAgo) {
             try {
+              console.log(`[Startup] Deleting stale webhook ${webhook.id}`);
               await webhook.delete("Cleanup stale webhook from bot restart.");
               deletedCount++;
+              console.log(`[Startup] Successfully deleted webhook ${webhook.id}`);
             } catch (error) {
-              // ignore individual deletion failures
+              console.error(`[Startup] Failed to delete webhook ${webhook.id}:`, error.message);
             }
           }
         }
       } catch (error) {
-        // ignore per-channel failures
+        console.error(`[Startup] Error checking channel ${channelId}:`, error.message);
       }
     }
 
-    if (deletedCount > 0) {
-      console.log(`[Startup] Cleaned up ${deletedCount} stale webhooks from previous sessions.`);
-    }
+    console.log(`[Startup] Cleanup complete: deleted ${deletedCount} stale webhook(s)`);
   } catch (error) {
     console.error("[Startup] Failed to cleanup stale webhooks:", error.message);
   }
