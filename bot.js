@@ -4771,9 +4771,10 @@ async function ensureWebhook(channel, character, botMember, retryDepth = 0) {
         token: entry.token
       });
       await webhookClient.fetch();
-      clearWebhookAutoDeleteTimer(entry.id);
+      // Don't clear the auto-delete timer - let it delete after 1 minute regardless
       return entry;
     } catch (error) {
+      // Only clear timer if webhook is invalid/deleted
       clearWebhookAutoDeleteTimer(entry.id);
       removeWebhookFromChannelCache(channelId, entry.id);
     }
@@ -4822,7 +4823,6 @@ async function ensureWebhook(channel, character, botMember, retryDepth = 0) {
   }
 
   if (createdWebhook?.id && createdWebhook?.token) {
-    clearWebhookAutoDeleteTimer(createdWebhook.id);
     webhooks[channelId][sharedKey] = {
       id: createdWebhook.id,
       token: createdWebhook.token
@@ -4843,7 +4843,7 @@ async function ensureWebhook(channel, character, botMember, retryDepth = 0) {
         token: cachedEntry.token
       });
       await fallbackWebhookClient.fetch();
-      clearWebhookAutoDeleteTimer(cachedEntry.id);
+      // Don't clear auto-delete timer when reusing webhooks
       webhooks[channelId][sharedKey] = {
         id: cachedEntry.id,
         token: cachedEntry.token
