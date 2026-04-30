@@ -7506,6 +7506,9 @@ client.on("interactionCreate", async (interaction) => {
               .map((line) => line.replace(/^\s*-#\s?/, ""))
               .join("\n")
               .trim();
+            
+            // Keep the directly referenced message separate for actual reply target
+            let directMessage = referencedMessage;
             let previewSourceMessage = referencedMessage;
             let sourceText = stripSubtextPrefix(previewSourceMessage.content || previewSourceMessage.cleanContent || "");
 
@@ -7529,6 +7532,7 @@ client.on("interactionCreate", async (interaction) => {
                     "Linked message lookup timed out."
                   ).catch(() => null);
                   if (linkedMessage) {
+                    // Only use the original message for preview display, not as reply target
                     previewSourceMessage = linkedMessage;
                     sourceText = stripSubtextPrefix(linkedMessage.content || linkedMessage.cleanContent || "");
                   }
@@ -7574,7 +7578,7 @@ client.on("interactionCreate", async (interaction) => {
             const preview = normalizedPreviewSource.length > 50
               ? `${normalizedPreviewSource.slice(0, 50).trimEnd()}...`
               : normalizedPreviewSource;
-            const replyJumpUrl = `https://discord.com/channels/${interaction.guildId}/${referencedMessage.channelId}/${referencedMessage.id}`;
+            const replyJumpUrl = `https://discord.com/channels/${interaction.guildId}/${directMessage.channelId}/${directMessage.id}`;
             const safeAuthor = escapeLinkText(replyAuthor).slice(0, 40) || "unknown";
             const safePreview = escapeLinkText(preview);
             replyHeader = `-# ↪ [Replying to ${safeAuthor}: ${safePreview}](${replyJumpUrl})`;
