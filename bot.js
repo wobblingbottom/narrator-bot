@@ -996,22 +996,20 @@ function scheduleWebhookAutoDelete(channelId, webhookInfo) {
 
   const timer = setTimeout(async () => {
     try {
+      console.log(`[Webhook Auto-Delete] Deleting webhook ${webhookInfo.id} from channel ${channelId}`);
       const webhookClient = new WebhookClient({
         id: webhookInfo.id,
         token: webhookInfo.token
       });
       await webhookClient.delete("Auto-delete after 1 minute.");
+      console.log(`[Webhook Auto-Delete] Successfully deleted webhook ${webhookInfo.id}`);
     } catch (error) {
-      // ignore if already deleted or invalid
+      console.error(`[Webhook Auto-Delete] Failed to delete webhook ${webhookInfo.id}:`, error.message);
     } finally {
       removeWebhookFromChannelCache(channelId, webhookInfo.id);
       webhookAutoDeleteTimers.delete(webhookInfo.id);
     }
   }, WEBHOOK_AUTO_DELETE_MS);
-
-  if (typeof timer.unref === "function") {
-    timer.unref();
-  }
 
   webhookAutoDeleteTimers.set(webhookInfo.id, { timer, channelId });
 }
