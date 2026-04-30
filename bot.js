@@ -7446,6 +7446,19 @@ client.on("interactionCreate", async (interaction) => {
             replyPingTargetId = String(trackedReplyLogEntry?.userId || referencedMessage.author?.id || "").trim();
             console.log(`[/say debug] Tracked entry found: ${!!trackedReplyLogEntry}, Using ping target: ${replyPingTargetId}`);
           }
+          
+          // Also find if the message being replied to was itself a /say reply, to get the original target
+          const replyTargetLogEntry = [...messageLogs]
+            .reverse()
+            .find(
+              (entry) =>
+                entry?.guildId === interaction.guildId &&
+                entry?.messageId === replyToMessageId &&
+                entry?.source === "say"
+            );
+          
+          // Store this for later use in preview extraction
+          referencedMessage._replyTargetLogEntry = replyTargetLogEntry;
         }
 
         let webhookInfo;
@@ -7540,7 +7553,17 @@ client.on("interactionCreate", async (interaction) => {
               }
             }
 
-            const replyAuthor = previewSourceMessage.author?.username || "unknown";
+            let replyAuthor = previewSourceMessage.author?.username || "unknown";
+            
+            // If replying to a /say message, use the original reply header author info if available
+            if (referencedMessage._replyTargetLogEntry?.replyHeader) {
+              const headerMatch = referencedMessage._replyTargetLogEntry.replyHeader.match(
+                /↪\s*\[?Replying to ([^:]+):/
+              );
+              if (headerMatch) {
+                replyAuthor = headerMatch[1];
+              }
+            }
 
             if (/^↪\s/.test(sourceText)) {
               const originalHeaderText = sourceText;
