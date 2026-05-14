@@ -4,6 +4,7 @@ Multi-server Discord RP bot with:
 - Character ownership + profiles
 - `/say` via webhooks (character persona messaging)
 - User/character wallets and points
+- Character and user level-up notifications to separately configurable Discord channels
 - Shop upgrades + role shop items
 - Admin setup panel + logs channel
 - Optional Discord subscription-based premium slots (+5 while active, slot-locked on expiry)
@@ -95,6 +96,15 @@ On startup, commands are registered by env mode:
 - Premium slots are separate from bought base slots.
 - If premium expires, characters are not deleted, but any characters above the active slot limit become slot-locked.
 - Slot-locked characters cannot be picked or used with `/say` until the user re-subscribes or frees enough non-premium slots.
+
+## Level-Up Logs
+
+- Character level-ups are posted to the configured character level-up alerts channel.
+- User level-ups are posted to the configured user level-up alerts channel.
+- If either alerts channel is not set, that alert type falls back to the server's configured logs channel.
+- Character level-up checks run when `/say` awards character points and when admins add character points with `/setup add-points`.
+- User level-up checks run when normal chat, `/say`, or admins award user points.
+- Configure both destinations separately through `/setup panel`.
 
 ## Deployment Notes
 

@@ -48,6 +48,8 @@ const ASSIGNMENTS_PATH = path.join(DATA_DIR, "assignments.json");
 const SELECTIONS_PATH = path.join(DATA_DIR, "selections.json");
 const WEBHOOKS_PATH = path.join(DATA_DIR, "webhooks.json");
 const LOGS_CHANNEL_PATH = path.join(DATA_DIR, "logsChannel.json");
+const CHARACTER_LEVEL_UP_ALERTS_CHANNEL_PATH = path.join(DATA_DIR, "characterLevelUpAlertsChannel.json");
+const USER_LEVEL_UP_ALERTS_CHANNEL_PATH = path.join(DATA_DIR, "userLevelUpAlertsChannel.json");
 const ADMIN_ROLES_PATH = path.join(DATA_DIR, "adminRoles.json");
 const DUNGEON_MASTER_ROLES_PATH = path.join(DATA_DIR, "dungeonMasterRoles.json");
 const SAY_CHANNELS_PATH = path.join(DATA_DIR, "sayChannels.json");
@@ -360,6 +362,8 @@ if (Object.keys(assignments).length === 0) {
 let selections = readJson(SELECTIONS_PATH, {});
 let webhooks = readJson(WEBHOOKS_PATH, {});
 let logsChannelId = readJson(LOGS_CHANNEL_PATH, null);
+let characterLevelUpAlertsChannelId = readJson(CHARACTER_LEVEL_UP_ALERTS_CHANNEL_PATH, null);
+let userLevelUpAlertsChannelId = readJson(USER_LEVEL_UP_ALERTS_CHANNEL_PATH, null);
 let adminRoles = readJson(ADMIN_ROLES_PATH, {});
 let dungeonMasterRoles = readJson(DUNGEON_MASTER_ROLES_PATH, {});
 let sayChannels = readJson(SAY_CHANNELS_PATH, {});
@@ -1209,6 +1213,14 @@ function saveLogsChannel() {
   writeJson(LOGS_CHANNEL_PATH, logsChannelId);
 }
 
+function saveCharacterLevelUpAlertsChannel() {
+  writeJson(CHARACTER_LEVEL_UP_ALERTS_CHANNEL_PATH, characterLevelUpAlertsChannelId);
+}
+
+function saveUserLevelUpAlertsChannel() {
+  writeJson(USER_LEVEL_UP_ALERTS_CHANNEL_PATH, userLevelUpAlertsChannelId);
+}
+
 function saveAdminRoles() {
   writeJson(ADMIN_ROLES_PATH, adminRoles);
 }
@@ -1333,6 +1345,68 @@ function setLogsChannelIdForGuild(guildId, channelId) {
   }
 
   saveLogsChannel();
+}
+
+function getScopedChannelIdForGuild(channelMap, guildId) {
+  if (!channelMap) {
+    return null;
+  }
+
+  if (typeof channelMap === "string") {
+    return channelMap;
+  }
+
+  if (typeof channelMap === "object" && !Array.isArray(channelMap)) {
+    return channelMap[getScopeId(guildId)] || null;
+  }
+
+  return null;
+}
+
+function getCharacterLevelUpAlertsChannelIdForGuild(guildId) {
+  return getScopedChannelIdForGuild(characterLevelUpAlertsChannelId, guildId);
+}
+
+function getUserLevelUpAlertsChannelIdForGuild(guildId) {
+  return getScopedChannelIdForGuild(userLevelUpAlertsChannelId, guildId);
+}
+
+function setCharacterLevelUpAlertsChannelIdForGuild(guildId, channelId) {
+  if (!guildId) {
+    return;
+  }
+
+  if (!characterLevelUpAlertsChannelId || typeof characterLevelUpAlertsChannelId !== "object" || Array.isArray(characterLevelUpAlertsChannelId)) {
+    characterLevelUpAlertsChannelId = {};
+  }
+
+  const key = getScopeId(guildId);
+  if (channelId) {
+    characterLevelUpAlertsChannelId[key] = channelId;
+  } else {
+    delete characterLevelUpAlertsChannelId[key];
+  }
+
+  saveCharacterLevelUpAlertsChannel();
+}
+
+function setUserLevelUpAlertsChannelIdForGuild(guildId, channelId) {
+  if (!guildId) {
+    return;
+  }
+
+  if (!userLevelUpAlertsChannelId || typeof userLevelUpAlertsChannelId !== "object" || Array.isArray(userLevelUpAlertsChannelId)) {
+    userLevelUpAlertsChannelId = {};
+  }
+
+  const key = getScopeId(guildId);
+  if (channelId) {
+    userLevelUpAlertsChannelId[key] = channelId;
+  } else {
+    delete userLevelUpAlertsChannelId[key];
+  }
+
+  saveUserLevelUpAlertsChannel();
 }
 
 function getAdminRoleIds(guildId) {
@@ -1903,6 +1977,8 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
   const roleIds = getAdminRoleIds(guildId);
   const dungeonMasterRoleIds = getDungeonMasterRoleIds(guildId);
   const logsChannel = getLogsChannelIdForGuild(guildId);
+  const characterLevelUpAlertsChannel = getCharacterLevelUpAlertsChannelIdForGuild(guildId);
+  const userLevelUpAlertsChannel = getUserLevelUpAlertsChannelIdForGuild(guildId);
   const allowedSayChannels = getSayAllowedChannelIds(guildId);
   const roleplayEnabled = isRoleplayEnabledForGuild(guildId);
   const maxAdminRolePreview = 3;
@@ -2014,6 +2090,58 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
         style: 2,
         label: "Clear Logs Channel",
         custom_id: "setup:panel:clear-logs"
+      }
+    ]
+  });
+
+  components.push({ type: 14, divider: true, spacing: 1 });
+  components.push({ type: 10, content: "### Character Level-Up Alerts Channel" });
+  components.push({
+    type: 10,
+    content: characterLevelUpAlertsChannel
+      ? `${BULLET_EMOJI_RAW} Current: <#${characterLevelUpAlertsChannel}>`
+      : `${BULLET_EMOJI_RAW} Current: Not set${logsChannel ? ` (falls back to <#${logsChannel}>)` : ""}`
+  });
+  components.push({
+    type: 1,
+    components: [
+      {
+        type: 2,
+        style: 2,
+        label: "Set Character Alerts",
+        custom_id: "setup:panel:set-character-level-up-alerts"
+      },
+      {
+        type: 2,
+        style: 2,
+        label: "Clear Character Alerts",
+        custom_id: "setup:panel:clear-character-level-up-alerts"
+      }
+    ]
+  });
+
+  components.push({ type: 14, divider: true, spacing: 1 });
+  components.push({ type: 10, content: "### User Level-Up Alerts Channel" });
+  components.push({
+    type: 10,
+    content: userLevelUpAlertsChannel
+      ? `${BULLET_EMOJI_RAW} Current: <#${userLevelUpAlertsChannel}>`
+      : `${BULLET_EMOJI_RAW} Current: Not set${logsChannel ? ` (falls back to <#${logsChannel}>)` : ""}`
+  });
+  components.push({
+    type: 1,
+    components: [
+      {
+        type: 2,
+        style: 2,
+        label: "Set User Alerts",
+        custom_id: "setup:panel:set-user-level-up-alerts"
+      },
+      {
+        type: 2,
+        style: 2,
+        label: "Clear User Alerts",
+        custom_id: "setup:panel:clear-user-level-up-alerts"
       }
     ]
   });
@@ -2766,14 +2894,24 @@ function canAssignCharacterToUser(guildId, userId, characterId) {
 
 function addPoints(guildId, userId, amount) {
   if (!guildId || !userId || !Number.isFinite(amount) || amount <= 0) {
-    return;
+    return null;
   }
 
   const currentPoints = promoteLegacyNumericValue(points, guildId, userId, 0);
+  const oldLevel = calculateCharacterLevel(currentPoints);
   const key = getPointsKey(guildId, userId);
   points[key] = normalizePoints(currentPoints + amount);
   upsertUserPointsInDb(guildId, userId, points[key]);
   savePoints();
+
+  const newLevel = calculateCharacterLevel(points[key]);
+  return {
+    oldPoints: normalizePoints(currentPoints),
+    newPoints: points[key],
+    oldLevel,
+    newLevel,
+    leveledUp: newLevel.level > oldLevel.level
+  };
 }
 
 function spendPoints(guildId, userId, amount) {
@@ -2828,6 +2966,119 @@ function formatPoints(value) {
 
 function formatPointsWithEmoji(value) {
   return `${formatPoints(value)} ${POINTS_EMOJI_RAW}`;
+}
+
+function calculateCharacterLevel(pointsValue) {
+  let level = 1;
+  let threshold = 10;
+  let currentXp = Math.max(0, normalizePoints(pointsValue));
+
+  while (currentXp >= threshold) {
+    currentXp = normalizePoints(currentXp - threshold);
+    level++;
+    threshold = Math.floor(threshold * 1.4);
+  }
+
+  return { level, currentXp, nextXp: threshold };
+}
+
+async function sendCharacterLevelUpLog(clientInstance, guildId, characterId, levelUpInfo, options = {}) {
+  if (!clientInstance || !guildId || !characterId || !levelUpInfo?.leveledUp) {
+    return;
+  }
+
+  const alertsChannelId = getCharacterLevelUpAlertsChannelIdForGuild(guildId) || getLogsChannelIdForGuild(guildId);
+  if (!alertsChannelId) {
+    return;
+  }
+
+  try {
+    const logsChannel = await clientInstance.channels.fetch(alertsChannelId);
+    if (!logsChannel?.isTextBased()) {
+      return;
+    }
+
+    const character = options.character || getCharacterById(characterId, guildId);
+    const ownerId = getAssignedUserId(guildId, characterId);
+    const sourceLine = options.source ? `${BULLET_EMOJI_RAW} **Source:** ${options.source}` : null;
+    const actorLine = options.actorId ? `${BULLET_EMOJI_RAW} **Triggered by:** <@${options.actorId}>` : null;
+    const messageLine = options.messageId && options.channelId
+      ? `${BULLET_EMOJI_RAW} **Message:** https://discord.com/channels/${guildId}/${options.channelId}/${options.messageId}`
+      : null;
+
+    const levelUpComponents = [
+      { type: 10, content: "## <:success:1479234774861221898> Character Level Up" },
+      { type: 14, divider: true, spacing: 1 },
+      { type: 10, content: `${BULLET_EMOJI_RAW} **Character:** ${character?.name || characterId} (\`${characterId}\`)` },
+      { type: 10, content: `${BULLET_EMOJI_RAW} **Owner:** ${ownerId ? `<@${ownerId}>` : "Unassigned"}` },
+      { type: 10, content: `${BULLET_EMOJI_RAW} **Level:** ${levelUpInfo.oldLevel.level} -> **${levelUpInfo.newLevel.level}**` },
+      { type: 10, content: `${BULLET_EMOJI_RAW} **Character Points:** ${formatPointsWithEmoji(levelUpInfo.oldPoints)} -> **${formatPointsWithEmoji(levelUpInfo.newPoints)}**` }
+    ];
+
+    if (sourceLine) levelUpComponents.push({ type: 10, content: sourceLine });
+    if (actorLine) levelUpComponents.push({ type: 10, content: actorLine });
+    if (messageLine) levelUpComponents.push({ type: 10, content: messageLine });
+
+    levelUpComponents.push(
+      { type: 14, divider: true, spacing: 1 },
+      { type: 10, content: `${BULLET_EMOJI_RAW} _${new Date().toISOString()}_` }
+    );
+
+    await logsChannel.send({
+      flags: 32768,
+      components: [{ type: 17, components: levelUpComponents }],
+      allowedMentions: { parse: [] }
+    });
+  } catch (error) {
+    console.error("Failed to send character level-up log:", error);
+  }
+}
+
+async function sendUserLevelUpLog(clientInstance, guildId, userId, levelUpInfo, options = {}) {
+  if (!clientInstance || !guildId || !userId || !levelUpInfo?.leveledUp) {
+    return;
+  }
+
+  const alertsChannelId = getUserLevelUpAlertsChannelIdForGuild(guildId) || getLogsChannelIdForGuild(guildId);
+  if (!alertsChannelId) {
+    return;
+  }
+
+  try {
+    const logsChannel = await clientInstance.channels.fetch(alertsChannelId);
+    if (!logsChannel?.isTextBased()) {
+      return;
+    }
+
+    const sourceLine = options.source ? `${BULLET_EMOJI_RAW} **Source:** ${options.source}` : null;
+    const messageLine = options.messageId && options.channelId
+      ? `${BULLET_EMOJI_RAW} **Message:** https://discord.com/channels/${guildId}/${options.channelId}/${options.messageId}`
+      : null;
+
+    const levelUpComponents = [
+      { type: 10, content: "## <:success:1479234774861221898> User Level Up" },
+      { type: 14, divider: true, spacing: 1 },
+      { type: 10, content: `${BULLET_EMOJI_RAW} **User:** <@${userId}>` },
+      { type: 10, content: `${BULLET_EMOJI_RAW} **Level:** ${levelUpInfo.oldLevel.level} -> **${levelUpInfo.newLevel.level}**` },
+      { type: 10, content: `${BULLET_EMOJI_RAW} **User Points:** ${formatPointsWithEmoji(levelUpInfo.oldPoints)} -> **${formatPointsWithEmoji(levelUpInfo.newPoints)}**` }
+    ];
+
+    if (sourceLine) levelUpComponents.push({ type: 10, content: sourceLine });
+    if (messageLine) levelUpComponents.push({ type: 10, content: messageLine });
+
+    levelUpComponents.push(
+      { type: 14, divider: true, spacing: 1 },
+      { type: 10, content: `${BULLET_EMOJI_RAW} _${new Date().toISOString()}_` }
+    );
+
+    await logsChannel.send({
+      flags: 32768,
+      components: [{ type: 17, components: levelUpComponents }],
+      allowedMentions: { parse: [] }
+    });
+  } catch (error) {
+    console.error("Failed to send user level-up log:", error);
+  }
 }
 
 function distributePremiumDailyRewards() {
@@ -2887,14 +3138,24 @@ function getUserPoints(guildId, userId) {
 
 function addCharacterPoints(guildId, characterId, amount) {
   if (!guildId || !characterId || !Number.isFinite(amount) || amount <= 0) {
-    return;
+    return null;
   }
 
   const currentPoints = promoteLegacyNumericValue(characterPoints, guildId, characterId, 0);
+  const oldLevel = calculateCharacterLevel(currentPoints);
   const key = getCharacterPointsKey(guildId, characterId);
   characterPoints[key] = normalizePoints(currentPoints + amount);
   upsertCharacterPointsInDb(guildId, characterId, characterPoints[key]);
   saveCharacterPoints();
+
+  const newLevel = calculateCharacterLevel(characterPoints[key]);
+  return {
+    oldPoints: normalizePoints(currentPoints),
+    newPoints: characterPoints[key],
+    oldLevel,
+    newLevel,
+    leveledUp: newLevel.level > oldLevel.level
+  };
 }
 
 function getCharacterPoints(guildId, characterId) {
@@ -5093,20 +5354,7 @@ async function generateCharacterCardImage(character, options = {}) {
   const safeTitleName = escapeSvgText(titleName);
   const hasWalletBoost = upgradeIds.includes("character_wallet_boost");
   const hasCooldownBoost = upgradeIds.includes("cooldown_boost");
-
-  // Level calculation: each level requires progressively more points
-  const calcLevel = (pts) => {
-    let lvl = 1;
-    let threshold = 10;
-    let remaining = pts;
-    while (remaining >= threshold) {
-      remaining -= threshold;
-      lvl++;
-      threshold = Math.floor(threshold * 1.4);
-    }
-    return { level: lvl, currentXp: remaining, nextXp: threshold };
-  };
-  const levelInfo = calcLevel(points);
+  const levelInfo = calculateCharacterLevel(points);
 
   const name = clampText(character.name || character.id, 36) || "Unknown Character";
   const bio = clampText(character.bio, 210) || "No bio set yet.";
@@ -7708,12 +7956,24 @@ client.on("interactionCreate", async (interaction) => {
             scheduleWebhookAutoDelete(autoDeleteChannelId, webhookInfo);
           }
 
-          addPoints(interaction.guildId, interaction.user.id, POINTS_PER_CHARACTER_MESSAGE);
+          const userLevelUpInfo = addPoints(interaction.guildId, interaction.user.id, POINTS_PER_CHARACTER_MESSAGE);
+          await sendUserLevelUpLog(interaction.client, interaction.guildId, interaction.user.id, userLevelUpInfo, {
+            channelId: sentMessage?.channelId || interaction.channelId,
+            messageId: sentMessage?.id || null,
+            source: "/say user points"
+          });
 
           const characterPointsCooldownMs = getCharacterPointsCooldownMs(interaction.guildId, selectedCharacterId);
           if (shouldAwardCharacterPoints(interaction.guildId, interaction.user.id, selectedCharacterId, characterPointsCooldownMs)) {
             const characterReward = getCharacterPointsReward(interaction.guildId, selectedCharacterId);
-            addCharacterPoints(interaction.guildId, selectedCharacterId, characterReward);
+            const levelUpInfo = addCharacterPoints(interaction.guildId, selectedCharacterId, characterReward);
+            await sendCharacterLevelUpLog(interaction.client, interaction.guildId, selectedCharacterId, levelUpInfo, {
+              character,
+              actorId: interaction.user.id,
+              channelId: sentMessage?.channelId || interaction.channelId,
+              messageId: sentMessage?.id || null,
+              source: "/say character points"
+            });
           }
 
           // Log the message and webhook context so /say-edit can target it later.
@@ -8266,8 +8526,11 @@ client.on("interactionCreate", async (interaction) => {
               return;
             }
 
-            addPoints(interaction.guildId, targetUser.id, amount);
+            const levelUpInfo = addPoints(interaction.guildId, targetUser.id, amount);
             const newTotal = getUserPoints(interaction.guildId, targetUser.id);
+            await sendUserLevelUpLog(interaction.client, interaction.guildId, targetUser.id, levelUpInfo, {
+              source: "/setup add-points"
+            });
 
             await replyComponentsV2(
               interaction,
@@ -8307,8 +8570,13 @@ client.on("interactionCreate", async (interaction) => {
               return;
             }
 
-            addCharacterPoints(interaction.guildId, characterId, amount);
+            const levelUpInfo = addCharacterPoints(interaction.guildId, characterId, amount);
             const newTotal = getCharacterPoints(interaction.guildId, characterId);
+            await sendCharacterLevelUpLog(interaction.client, interaction.guildId, characterId, levelUpInfo, {
+              character,
+              actorId: interaction.user.id,
+              source: "/setup add-points"
+            });
 
             await replyComponentsV2(
               interaction,
@@ -9357,6 +9625,52 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
+        if (action === "clear-character-level-up-alerts-confirm") {
+          setCharacterLevelUpAlertsChannelIdForGuild(interaction.guildId, null);
+          await interaction.update({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `<:success:1479234774861221898> Character level-up alerts channel cleared. Alerts will fall back to the logs channel if one is set.`
+            )
+          });
+          return;
+        }
+
+        if (action === "clear-character-level-up-alerts-cancel") {
+          await interaction.update({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} Character level-up alerts channel clear cancelled.`
+            )
+          });
+          return;
+        }
+
+        if (action === "clear-user-level-up-alerts-confirm") {
+          setUserLevelUpAlertsChannelIdForGuild(interaction.guildId, null);
+          await interaction.update({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `<:success:1479234774861221898> User level-up alerts channel cleared. Alerts will fall back to the logs channel if one is set.`
+            )
+          });
+          return;
+        }
+
+        if (action === "clear-user-level-up-alerts-cancel") {
+          await interaction.update({
+            flags: 32768,
+            components: buildSetupAdminPanel(
+              interaction.guildId,
+              `${UNSUCCESSFUL_EMOJI_RAW} User level-up alerts channel clear cancelled.`
+            )
+          });
+          return;
+        }
+
         if (action === "clear-say-channels-confirm") {
           setSayAllowedChannelIds(interaction.guildId, []);
           await interaction.update({
@@ -9583,6 +9897,52 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
+        if (action === "set-character-level-up-alerts") {
+          await interaction.reply({
+            content: "Choose the channel for character level-up alerts.",
+            ephemeral: true,
+            components: [
+              {
+                type: 1,
+                components: [
+                  {
+                    type: 8,
+                    custom_id: "setup:panel:set-character-level-up-alerts:select",
+                    placeholder: "Select a character alerts channel",
+                    min_values: 1,
+                    max_values: 1,
+                    channel_types: [0, 5, 11, 12, 15]
+                  }
+                ]
+              }
+            ]
+          });
+          return;
+        }
+
+        if (action === "set-user-level-up-alerts") {
+          await interaction.reply({
+            content: "Choose the channel for user level-up alerts.",
+            ephemeral: true,
+            components: [
+              {
+                type: 1,
+                components: [
+                  {
+                    type: 8,
+                    custom_id: "setup:panel:set-user-level-up-alerts:select",
+                    placeholder: "Select a user alerts channel",
+                    min_values: 1,
+                    max_values: 1,
+                    channel_types: [0, 5, 11, 12, 15]
+                  }
+                ]
+              }
+            ]
+          });
+          return;
+        }
+
         if (action === "set-say-channels") {
           await interaction.reply({
             content: "Choose the channels where /say is allowed. If no channels are configured, /say is allowed everywhere.",
@@ -9630,6 +9990,72 @@ client.on("interactionCreate", async (interaction) => {
                       style: 2,
                       label: "Cancel",
                       custom_id: "setup:panel:clear-logs-cancel"
+                    }
+                  ]
+                }
+              ]
+            )
+          });
+          return;
+        }
+
+        if (action === "clear-character-level-up-alerts") {
+          await interaction.update({
+            flags: 32768,
+            components: buildComponentsBox(
+              "Clear Character Level-Up Alerts Channel",
+              [
+                "Are you sure you want to clear the configured character level-up alerts channel?",
+                "After this, character level-up alerts will use the logs channel if one is configured."
+              ],
+              [
+                {
+                  type: 1,
+                  components: [
+                    {
+                      type: 2,
+                      style: 4,
+                      label: "Confirm Clear",
+                      custom_id: "setup:panel:clear-character-level-up-alerts-confirm"
+                    },
+                    {
+                      type: 2,
+                      style: 2,
+                      label: "Cancel",
+                      custom_id: "setup:panel:clear-character-level-up-alerts-cancel"
+                    }
+                  ]
+                }
+              ]
+            )
+          });
+          return;
+        }
+
+        if (action === "clear-user-level-up-alerts") {
+          await interaction.update({
+            flags: 32768,
+            components: buildComponentsBox(
+              "Clear User Level-Up Alerts Channel",
+              [
+                "Are you sure you want to clear the configured user level-up alerts channel?",
+                "After this, user level-up alerts will use the logs channel if one is configured."
+              ],
+              [
+                {
+                  type: 1,
+                  components: [
+                    {
+                      type: 2,
+                      style: 4,
+                      label: "Confirm Clear",
+                      custom_id: "setup:panel:clear-user-level-up-alerts-confirm"
+                    },
+                    {
+                      type: 2,
+                      style: 2,
+                      label: "Cancel",
+                      custom_id: "setup:panel:clear-user-level-up-alerts-cancel"
                     }
                   ]
                 }
@@ -10468,6 +10894,78 @@ client.on("interactionCreate", async (interaction) => {
         components: buildSetupAdminPanel(
           interaction.guildId,
           `<:success:1479234774861221898> /say is now allowed in ${summary}${suffix}.`
+        ),
+        ephemeral: true
+      });
+      return;
+    }
+
+    if (
+      interaction.customId === "setup:panel:set-character-level-up-alerts:select" &&
+      Array.isArray(interaction.values)
+    ) {
+      if (!interaction.inGuild() || !hasAdminAccess(interaction)) {
+        await acknowledgeInteractionSilently(interaction);
+        return;
+      }
+
+      const channelId = interaction.values?.[0];
+      const channel = channelId ? interaction.guild.channels.cache.get(channelId) : null;
+
+      if (!channel || !channel.isTextBased()) {
+        await interaction.reply({
+          flags: 32768,
+          components: buildSetupAdminPanel(
+            interaction.guildId,
+            `${UNSUCCESSFUL_EMOJI_RAW} Invalid channel selection.`
+          ),
+          ephemeral: true
+        });
+        return;
+      }
+
+      setCharacterLevelUpAlertsChannelIdForGuild(interaction.guildId, channel.id);
+      await interaction.reply({
+        flags: 32768,
+        components: buildSetupAdminPanel(
+          interaction.guildId,
+          `<:success:1479234774861221898> Character level-up alerts channel set to <#${channel.id}>.`
+        ),
+        ephemeral: true
+      });
+      return;
+    }
+
+    if (
+      interaction.customId === "setup:panel:set-user-level-up-alerts:select" &&
+      Array.isArray(interaction.values)
+    ) {
+      if (!interaction.inGuild() || !hasAdminAccess(interaction)) {
+        await acknowledgeInteractionSilently(interaction);
+        return;
+      }
+
+      const channelId = interaction.values?.[0];
+      const channel = channelId ? interaction.guild.channels.cache.get(channelId) : null;
+
+      if (!channel || !channel.isTextBased()) {
+        await interaction.reply({
+          flags: 32768,
+          components: buildSetupAdminPanel(
+            interaction.guildId,
+            `${UNSUCCESSFUL_EMOJI_RAW} Invalid channel selection.`
+          ),
+          ephemeral: true
+        });
+        return;
+      }
+
+      setUserLevelUpAlertsChannelIdForGuild(interaction.guildId, channel.id);
+      await interaction.reply({
+        flags: 32768,
+        components: buildSetupAdminPanel(
+          interaction.guildId,
+          `<:success:1479234774861221898> User level-up alerts channel set to <#${channel.id}>.`
         ),
         ephemeral: true
       });
@@ -12257,7 +12755,12 @@ client.on("messageCreate", async (message) => {
     }
 
     if (shouldAwardPoints(messagePointsCooldowns, message.guild.id, message.author.id, MESSAGE_POINTS_COOLDOWN_MS)) {
-      addPoints(message.guild.id, message.author.id, getRandomMessagePointsReward());
+      const levelUpInfo = addPoints(message.guild.id, message.author.id, getRandomMessagePointsReward());
+      await sendUserLevelUpLog(message.client, message.guild.id, message.author.id, levelUpInfo, {
+        channelId: message.channelId,
+        messageId: message.id,
+        source: "message points"
+      });
     }
   } catch (error) {
     console.error("Failed to award message points:", error);
