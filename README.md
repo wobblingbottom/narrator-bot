@@ -46,16 +46,6 @@ Other optional vars:
 - `CURRENCY_EMOJI`
 - `DISCORD_PREMIUM_SLOT_SKUS` (comma-separated Discord SKU IDs for premium subscriptions)
 
-Legacy payment vars (only if using optional PayPal backend):
-- `PAYMENTS_PORT`
-- `PAYPAL_MODE`
-- `PAYPAL_CLIENT_ID`
-- `PAYPAL_CLIENT_SECRET`
-- `PAYPAL_WEBHOOK_ID`
-- `PAYPAL_CURRENCY`
-- `PAYPAL_SLOT_PRICE`
-- `PAYPAL_SLOT_SCOPE`
-
 ## Install
 
 ```bash
