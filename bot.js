@@ -1983,6 +1983,23 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
   const roleplayEnabled = isRoleplayEnabledForGuild(guildId);
   const maxAdminRolePreview = 3;
   const maxSayChannelPreview = 3;
+  const formatRolePreview = (ids) => {
+    if (ids.length === 0) {
+      return "none configured";
+    }
+
+    const preview = ids.slice(0, maxAdminRolePreview).map((roleId) => `<@&${roleId}>`).join(", ");
+    return `${ids.length} role(s): ${preview}${ids.length > maxAdminRolePreview ? `, and ${ids.length - maxAdminRolePreview} more` : ""}`;
+  };
+  const formatSayChannelPreview = () => {
+    if (allowedSayChannels.length === 0) {
+      return "all channels allowed";
+    }
+
+    const preview = allowedSayChannels.slice(0, maxSayChannelPreview).map((channelId) => `<#${channelId}>`).join(", ");
+    return `${allowedSayChannels.length} channel(s): ${preview}${allowedSayChannels.length > maxSayChannelPreview ? `, and ${allowedSayChannels.length - maxSayChannelPreview} more` : ""}`;
+  };
+  const formatChannel = (channelId, fallbackText = "not set") => channelId ? `<#${channelId}>` : fallbackText;
 
   const components = [
     { type: 10, content: "## Setup Manager" },
@@ -2005,20 +2022,8 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
       }
     ]
   });
-  components.push({ type: 14, divider: true, spacing: 1 });
 
-  components.push({ type: 10, content: "### Admin Roles" });
-  if (roleIds.length === 0) {
-    components.push({ type: 10, content: `${BULLET_EMOJI_RAW} No admin roles configured.` });
-  } else {
-    components.push({ type: 10, content: `${BULLET_EMOJI_RAW} Configured: ${roleIds.length} role(s).` });
-    const rolePreview = roleIds.slice(0, maxAdminRolePreview).map((roleId) => `<@&${roleId}>`).join(", ");
-    components.push({
-      type: 10,
-      content: `${BULLET_EMOJI_RAW} Preview: ${rolePreview}${roleIds.length > maxAdminRolePreview ? `, and ${roleIds.length - maxAdminRolePreview} more` : ""}`
-    });
-  }
-
+  components.push({ type: 10, content: `### Admin Roles\n${BULLET_EMOJI_RAW} Current: ${formatRolePreview(roleIds)}` });
   components.push({
     type: 1,
     components: [
@@ -2037,19 +2042,7 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
     ]
   });
 
-  components.push({ type: 14, divider: true, spacing: 1 });
-  components.push({ type: 10, content: "### Dungeon Master Roles" });
-  if (dungeonMasterRoleIds.length === 0) {
-    components.push({ type: 10, content: `${BULLET_EMOJI_RAW} No dungeon master roles configured.` });
-  } else {
-    components.push({ type: 10, content: `${BULLET_EMOJI_RAW} Configured: ${dungeonMasterRoleIds.length} role(s).` });
-    const rolePreview = dungeonMasterRoleIds.slice(0, maxAdminRolePreview).map((roleId) => `<@&${roleId}>`).join(", ");
-    components.push({
-      type: 10,
-      content: `${BULLET_EMOJI_RAW} Preview: ${rolePreview}${dungeonMasterRoleIds.length > maxAdminRolePreview ? `, and ${dungeonMasterRoleIds.length - maxAdminRolePreview} more` : ""}`
-    });
-  }
-
+  components.push({ type: 10, content: `### Dungeon Master Roles\n${BULLET_EMOJI_RAW} Current: ${formatRolePreview(dungeonMasterRoleIds)}` });
   components.push({
     type: 1,
     components: [
@@ -2068,14 +2061,7 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
     ]
   });
 
-  components.push({ type: 14, divider: true, spacing: 1 });
-  components.push({ type: 10, content: "### Logs Channel" });
-  components.push({
-    type: 10,
-    content: logsChannel
-      ? `${BULLET_EMOJI_RAW} Current: <#${logsChannel}>`
-      : `${BULLET_EMOJI_RAW} Current: Not set`
-  });
+  components.push({ type: 10, content: `### Logs Channel\n${BULLET_EMOJI_RAW} Current: ${formatChannel(logsChannel)}` });
   components.push({
     type: 1,
     components: [
@@ -2094,13 +2080,11 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
     ]
   });
 
-  components.push({ type: 14, divider: true, spacing: 1 });
-  components.push({ type: 10, content: "### Character Level-Up Alerts Channel" });
   components.push({
     type: 10,
-    content: characterLevelUpAlertsChannel
-      ? `${BULLET_EMOJI_RAW} Current: <#${characterLevelUpAlertsChannel}>`
-      : `${BULLET_EMOJI_RAW} Current: Not set${logsChannel ? ` (falls back to <#${logsChannel}>)` : ""}`
+    content: `### Character Level-Up Alerts Channel\n${BULLET_EMOJI_RAW} Current: ${
+      formatChannel(characterLevelUpAlertsChannel, `not set${logsChannel ? ` (falls back to <#${logsChannel}>)` : ""}`)
+    }`
   });
   components.push({
     type: 1,
@@ -2120,13 +2104,11 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
     ]
   });
 
-  components.push({ type: 14, divider: true, spacing: 1 });
-  components.push({ type: 10, content: "### User Level-Up Alerts Channel" });
   components.push({
     type: 10,
-    content: userLevelUpAlertsChannel
-      ? `${BULLET_EMOJI_RAW} Current: <#${userLevelUpAlertsChannel}>`
-      : `${BULLET_EMOJI_RAW} Current: Not set${logsChannel ? ` (falls back to <#${logsChannel}>)` : ""}`
+    content: `### User Level-Up Alerts Channel\n${BULLET_EMOJI_RAW} Current: ${
+      formatChannel(userLevelUpAlertsChannel, `not set${logsChannel ? ` (falls back to <#${logsChannel}>)` : ""}`)
+    }`
   });
   components.push({
     type: 1,
@@ -2146,18 +2128,7 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
     ]
   });
 
-  components.push({ type: 14, divider: true, spacing: 1 });
-  components.push({ type: 10, content: "### /say Allowed Channels" });
-  if (allowedSayChannels.length === 0) {
-    components.push({ type: 10, content: `${BULLET_EMOJI_RAW} Current: All channels allowed` });
-  } else {
-    components.push({ type: 10, content: `${BULLET_EMOJI_RAW} Restricted to ${allowedSayChannels.length} channel(s).` });
-    const channelPreview = allowedSayChannels.slice(0, maxSayChannelPreview).map((channelId) => `<#${channelId}>`).join(", ");
-    components.push({
-      type: 10,
-      content: `${BULLET_EMOJI_RAW} Preview: ${channelPreview}${allowedSayChannels.length > maxSayChannelPreview ? `, and ${allowedSayChannels.length - maxSayChannelPreview} more` : ""}`
-    });
-  }
+  components.push({ type: 10, content: `### /say Allowed Channels\n${BULLET_EMOJI_RAW} Current: ${formatSayChannelPreview()}` });
   components.push({
     type: 1,
     components: [
@@ -2176,14 +2147,7 @@ function buildSetupAdminPanel(guildId, statusLine = null) {
     ]
   });
 
-  components.push({ type: 14, divider: true, spacing: 1 });
-  components.push({ type: 10, content: "### Roleplay" });
-  components.push({
-    type: 10,
-    content: roleplayEnabled
-      ? `${BULLET_EMOJI_RAW} Status: Enabled for everyone`
-      : `${BULLET_EMOJI_RAW} Status: Disabled for normal users (admins and bot managers can still use /say commands)`
-  });
+  components.push({ type: 10, content: `### Roleplay\n${BULLET_EMOJI_RAW} Status: ${roleplayEnabled ? "enabled for everyone" : "disabled for normal users (admins and bot managers can still use /say commands)"}` });
   components.push({
     type: 1,
     components: [
