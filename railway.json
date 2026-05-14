@@ -3,7 +3,6 @@
     "builder": "DOCKERFILE",
     "watchPatterns": [
       "bot.js",
-      "payments-server.js",
       "package.json",
       "package-lock.json",
       "Dockerfile",

@@ -13,13 +13,11 @@ Multi-server Discord RP bot with:
 - Node.js (ESM)
 - discord.js v14
 - better-sqlite3
-- express (optional legacy payments service)
 - sharp (profile image rendering)
 
 ## Project Structure
 
 - `bot.js` — main Discord bot
-- `payments-server.js` — PayPal payments backend
 - `config/` — static configuration
 - `data/` — runtime data (JSON + SQLite)
 - `Dockerfile` / `docker-compose.yml` — containerized deploy
@@ -45,7 +43,6 @@ Other optional vars:
 - `GUILD_ID` (legacy fallback for integrations)
 - `CURRENCY_EMOJI`
 - `DISCORD_PREMIUM_SLOT_SKUS` (comma-separated Discord SKU IDs for premium subscriptions)
-
 ## Install
 
 ```bash
@@ -58,12 +55,6 @@ Start bot:
 
 ```bash
 npm run start
-```
-
-Start optional legacy payments backend:
-
-```bash
-npm run start:payments
 ```
 
 ## Docker
@@ -125,8 +116,6 @@ Keep the README hosting section short. It should answer "how do I run this" and 
 4. Attach a Railway Volume mounted at `/app/data` for persistent bot data.
 5. Redeploy and check logs for `Logged in as ...`.
 
-If you use the legacy PayPal backend, deploy `payments-server.js` as a separate Railway service with `npm run start:payments`.
-
 ### Oracle Cloud
 
 - Oracle Cloud deployment guides are kept in the repo for manual VM hosting.
@@ -149,7 +138,6 @@ tar -czf backup-data.tar.gz data/
 For detailed hosting docs:
 - `DEPLOYMENT.md`
 - `QUICKSTART.md`
-- `PAYPAL_SETUP.md`
 
 ## Policies
 
@@ -161,7 +149,7 @@ Before public launch, replace placeholder contact text in both files.
 ## Security
 
 - Never commit real secrets in `.env`.
-- Rotate bot/payment tokens if exposed.
+- Rotate bot tokens if exposed.
 
 ## License
 

@@ -5505,13 +5505,10 @@ client.once("clientReady", () => {
   setInterval(distributePremiumDailyRewards, 60 * 60 * 1000);
 
   // Cleanup stale webhooks that didn't get deleted due to bot restart
-  (async () => {
-    try {
-      await cleanupStaleWebhooks();
-    } catch (error) {
-      console.error("[Startup] Webhook cleanup error:", error);
-    }
-  })();
+  console.log("[Startup] Starting stale webhook cleanup...");
+  cleanupStaleWebhooks().catch((error) => {
+    console.error("[Startup] Webhook cleanup error:", error);
+  });
 });
 
 client.on("guildCreate", () => {
