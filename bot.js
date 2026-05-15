@@ -5446,6 +5446,7 @@ async function generateCharacterCardImage(character, options = {}) {
 
   <!-- Main panel -->
   <rect x="24" y="24" width="1152" height="627" rx="12" fill="${panelFill}" stroke="${palette.border}" stroke-opacity="0.4" stroke-width="2"/>
+  <rect x="28" y="28" width="1144" height="619" rx="10" fill="none" stroke="${accent}" stroke-opacity="0.24" stroke-width="2"/>
   <rect x="24" y="24" width="1152" height="4" rx="2" fill="url(#accentGlow)"/>
   <rect x="24" y="24" width="1152" height="627" rx="12" fill="url(#panelGrain)" opacity="${hasBg ? "0.2" : "0.5"}"/>
 
@@ -5457,7 +5458,16 @@ async function generateCharacterCardImage(character, options = {}) {
 
   <!-- Inner border -->
   <rect x="40" y="40" width="1120" height="595" rx="6" fill="none" stroke="${palette.border}" stroke-opacity="0.12" stroke-width="1" stroke-dasharray="4,8"/>
+  <rect x="34" y="34" width="1132" height="607" rx="9" fill="none" stroke="${accent}" stroke-opacity="0.1" stroke-width="1" stroke-dasharray="18,10"/>
   <rect x="50" y="50" width="1100" height="575" rx="10" fill="none" stroke="url(#frameShine)" stroke-opacity="0.3" stroke-width="1"/>
+  <path d="M70 48 L138 48" fill="none" stroke="${accent}" stroke-opacity="0.32" stroke-width="2"/>
+  <path d="M1062 48 L1130 48" fill="none" stroke="${accent}" stroke-opacity="0.32" stroke-width="2"/>
+  <path d="M70 627 L138 627" fill="none" stroke="${accent}" stroke-opacity="0.24" stroke-width="2"/>
+  <path d="M1062 627 L1130 627" fill="none" stroke="${accent}" stroke-opacity="0.24" stroke-width="2"/>
+  <path d="M48 70 L48 138" fill="none" stroke="${accent}" stroke-opacity="0.28" stroke-width="2"/>
+  <path d="M48 521 L48 589" fill="none" stroke="${accent}" stroke-opacity="0.2" stroke-width="2"/>
+  <path d="M1152 70 L1152 138" fill="none" stroke="${accent}" stroke-opacity="0.28" stroke-width="2"/>
+  <path d="M1152 521 L1152 589" fill="none" stroke="${accent}" stroke-opacity="0.2" stroke-width="2"/>
   <path d="M86 72 C140 54, 198 54, 252 72" fill="none" stroke="${accent}" stroke-opacity="0.18" stroke-width="1.4"/>
   <path d="M948 72 C1002 54, 1060 54, 1114 72" fill="none" stroke="${accent}" stroke-opacity="0.18" stroke-width="1.4"/>
   <path d="M86 603 C140 621, 198 621, 252 603" fill="none" stroke="${accent}" stroke-opacity="0.14" stroke-width="1.2"/>
