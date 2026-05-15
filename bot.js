@@ -5344,12 +5344,13 @@ async function generateCharacterCardImage(character, options = {}) {
 
   // Section label with medieval bracket style
   const sectionLabel = (x, y, label) => `
-    <line x1="${x}" y1="${y}" x2="${x + 14}" y2="${y}" stroke="${palette.border}" stroke-opacity="0.35" stroke-width="1"/>
+    <line x1="${x}" y1="${y}" x2="${x + 14}" y2="${y}" stroke="${accent}" stroke-opacity="0.45" stroke-width="1"/>
     <text x="${x + 18}" y="${y + 4}" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="12" letter-spacing="2.5" font-style="italic">${label}</text>
-    <line x1="${x + 18 + label.length * 8.5}" y1="${y}" x2="${x + 18 + label.length * 8.5 + 14}" y2="${y}" stroke="${palette.border}" stroke-opacity="0.35" stroke-width="1"/>`;
+    <line x1="${x + 18 + label.length * 8.5}" y1="${y}" x2="${x + 18 + label.length * 8.5 + 14}" y2="${y}" stroke="${accent}" stroke-opacity="0.45" stroke-width="1"/>`;
 
   const divider = (x, y, w) => `
-    <line x1="${x}" y1="${y}" x2="${x + w}" y2="${y}" stroke="${palette.border}" stroke-opacity="0.18" stroke-width="1"/>`;
+    <line x1="${x}" y1="${y}" x2="${x + w}" y2="${y}" stroke="${palette.border}" stroke-opacity="0.18" stroke-width="1"/>
+    <circle cx="${x + w / 2}" cy="${y}" r="2" fill="${accent}" fill-opacity="0.35"/>`;
 
   // Right-side content x start (after avatar column)
   const cx = 280;
@@ -5412,6 +5413,7 @@ async function generateCharacterCardImage(character, options = {}) {
 
   <!-- Main panel -->
   <rect x="24" y="24" width="1152" height="627" rx="12" fill="${panelFill}" stroke="${palette.border}" stroke-opacity="0.4" stroke-width="2"/>
+  <rect x="28" y="28" width="1144" height="619" rx="10" fill="none" stroke="${accent}" stroke-opacity="0.18" stroke-width="1"/>
   <rect x="24" y="24" width="1152" height="627" rx="12" fill="url(#panelGrain)" opacity="${hasBg ? "0.2" : "0.5"}"/>
 
   <!-- Inner border -->
@@ -5443,7 +5445,7 @@ async function generateCharacterCardImage(character, options = {}) {
 
   <!-- Class -->
   <text x="154" y="330" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="11" letter-spacing="2" text-transform="uppercase">CLASS</text>
-  <text x="154" y="352" text-anchor="middle" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="17" font-weight="600">${safeClass}</text>
+  <text x="154" y="352" text-anchor="middle" fill="${accent}" fill-opacity="0.85" font-family="Georgia, 'Times New Roman', serif" font-size="17" font-weight="600">${safeClass}</text>
 
   <!-- Race -->
   <line x1="80" y1="370" x2="228" y2="370" stroke="${palette.border}" stroke-opacity="0.2" stroke-width="1"/>
@@ -5465,8 +5467,8 @@ async function generateCharacterCardImage(character, options = {}) {
   <!-- CHARACTER NAME -->
   <text x="${cx}" y="82" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="44" font-weight="700" letter-spacing="1">${safeName}</text>
   ${safeTitleName ? `<text x="${cx}" y="104" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="15" font-style="italic" letter-spacing="1.5" fill-opacity="0.85">~ ${safeTitleName} ~</text>` : ""}
-  <path d="M${cx + 560} 70 C${cx + 610} 58, ${cx + 690} 58, ${cx + 740} 70" fill="none" stroke="${palette.border}" stroke-opacity="0.14" stroke-width="1.1"/>
-  <circle cx="${cx + 650}" cy="66" r="2" fill="${palette.border}" fill-opacity="0.24"/>
+  <path d="M${cx + 560} 70 C${cx + 610} 58, ${cx + 690} 58, ${cx + 740} 70" fill="none" stroke="${accent}" stroke-opacity="0.22" stroke-width="1.1"/>
+  <circle cx="${cx + 650}" cy="66" r="2" fill="${accent}" fill-opacity="0.32"/>
   ${divider(cx, safeTitleName ? 114 : 98, cw)}
 
   <!-- BIO (TALE) -->
@@ -5501,11 +5503,11 @@ async function generateCharacterCardImage(character, options = {}) {
 
   <!-- Stats row -->
   <text x="${cx}" y="${statsY + 14}" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="12" letter-spacing="2">LEVEL</text>
-  <text x="${cx + 52}" y="${statsY + 14}" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="18" font-weight="700">${levelInfo.level}</text>
+  <text x="${cx + 52}" y="${statsY + 14}" fill="${accent}" fill-opacity="0.9" font-family="Georgia, 'Times New Roman', serif" font-size="18" font-weight="700">${levelInfo.level}</text>
 
   <!-- XP bar -->
   <rect x="${cx + 90}" y="${statsY + 2}" width="${xpBarWidth}" height="14" rx="7" fill="${palette.sectionBg}" stroke="${palette.border}" stroke-opacity="0.25" stroke-width="1"/>
-  <rect x="${cx + 91}" y="${statsY + 3}" width="${Math.max(0, xpFillWidth - 2)}" height="12" rx="6" fill="${palette.textMuted}" fill-opacity="0.45"/>
+  <rect x="${cx + 91}" y="${statsY + 3}" width="${Math.max(0, xpFillWidth - 2)}" height="12" rx="6" fill="${accent}" fill-opacity="0.5"/>
   <text x="${cx + 90 + xpBarWidth / 2}" y="${statsY + 13}" text-anchor="middle" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="9" font-weight="600">${levelInfo.currentXp} / ${levelInfo.nextXp} XP</text>
 
   <text x="${cx + 310}" y="${statsY + 14}" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="12" letter-spacing="2">MESSAGES</text>
@@ -5517,13 +5519,13 @@ async function generateCharacterCardImage(character, options = {}) {
   ${hasWalletBoost || hasCooldownBoost ? `<!-- Boost badges -->` : ""}
   ${hasWalletBoost ? `
   <g transform="translate(${cx + 720}, ${statsY - 2})">
-    <rect x="0" y="0" width="80" height="20" rx="4" fill="${palette.sectionBg}" fill-opacity="0.35" stroke="${palette.border}" stroke-opacity="0.35" stroke-width="1"/>
-    <text x="10" y="14" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="10" font-weight="600" letter-spacing="0.5">💰 WALLET+</text>
+    <rect x="0" y="0" width="80" height="20" rx="4" fill="${accent}" fill-opacity="0.12" stroke="${accent}" stroke-opacity="0.28" stroke-width="1"/>
+    <text x="10" y="14" fill="${accent}" fill-opacity="0.85" font-family="Georgia, 'Times New Roman', serif" font-size="10" font-weight="600" letter-spacing="0.5">💰 WALLET+</text>
   </g>` : ""}
   ${hasCooldownBoost ? `
   <g transform="translate(${cx + (hasWalletBoost ? 810 : 720)}, ${statsY - 2})">
-    <rect x="0" y="0" width="80" height="20" rx="4" fill="${palette.sectionBg}" fill-opacity="0.35" stroke="${palette.border}" stroke-opacity="0.35" stroke-width="1"/>
-    <text x="10" y="14" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="10" font-weight="600" letter-spacing="0.5">⚡ SPEED+</text>
+    <rect x="0" y="0" width="80" height="20" rx="4" fill="${accent}" fill-opacity="0.12" stroke="${accent}" stroke-opacity="0.28" stroke-width="1"/>
+    <text x="10" y="14" fill="${accent}" fill-opacity="0.85" font-family="Georgia, 'Times New Roman', serif" font-size="10" font-weight="600" letter-spacing="0.5">⚡ SPEED+</text>
   </g>` : ""}`;
   })()}
 
