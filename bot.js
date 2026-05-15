@@ -5423,6 +5423,16 @@ async function generateCharacterCardImage(character, options = {}) {
       <feGaussianBlur stdDeviation="6" result="blur"/>
       <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
+    <pattern id="panelGrain" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="4" cy="5" r="0.8" fill="${accent}" fill-opacity="0.07"/>
+      <circle cx="18" cy="9" r="0.7" fill="${palette.textMuted}" fill-opacity="0.06"/>
+      <circle cx="10" cy="18" r="0.9" fill="${accent}" fill-opacity="0.05"/>
+    </pattern>
+    <linearGradient id="frameShine" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="${accent}" stop-opacity="0.28"/>
+      <stop offset="50%" stop-color="${accent}" stop-opacity="0.03"/>
+      <stop offset="100%" stop-color="${accent}" stop-opacity="0.2"/>
+    </linearGradient>
   </defs>
 
   <!-- Background -->
@@ -5437,6 +5447,7 @@ async function generateCharacterCardImage(character, options = {}) {
   <!-- Main panel -->
   <rect x="24" y="24" width="1152" height="627" rx="12" fill="${panelFill}" stroke="${palette.border}" stroke-opacity="0.4" stroke-width="2"/>
   <rect x="24" y="24" width="1152" height="4" rx="2" fill="url(#accentGlow)"/>
+  <rect x="24" y="24" width="1152" height="627" rx="12" fill="url(#panelGrain)" opacity="${hasBg ? "0.2" : "0.5"}"/>
 
   <!-- Corner ornaments -->
   ${cornerOrnament(40, 40, 0)}
@@ -5446,20 +5457,28 @@ async function generateCharacterCardImage(character, options = {}) {
 
   <!-- Inner border -->
   <rect x="40" y="40" width="1120" height="595" rx="6" fill="none" stroke="${palette.border}" stroke-opacity="0.12" stroke-width="1" stroke-dasharray="4,8"/>
-
-  ${isPicked
-    ? `<g filter="url(#glow)">
-    <rect x="940" y="46" width="200" height="36" rx="6" fill="${accent}" fill-opacity="0.9"/>
-    <text x="1040" y="71" text-anchor="middle" fill="${palette.bgA}" font-family="Georgia, 'Times New Roman', serif" font-size="16" font-weight="700" letter-spacing="3">CHOSEN</text>
+  <rect x="50" y="50" width="1100" height="575" rx="10" fill="none" stroke="url(#frameShine)" stroke-opacity="0.3" stroke-width="1"/>
+  <path d="M86 72 C140 54, 198 54, 252 72" fill="none" stroke="${accent}" stroke-opacity="0.18" stroke-width="1.4"/>
+  <path d="M948 72 C1002 54, 1060 54, 1114 72" fill="none" stroke="${accent}" stroke-opacity="0.18" stroke-width="1.4"/>
+  <path d="M86 603 C140 621, 198 621, 252 603" fill="none" stroke="${accent}" stroke-opacity="0.14" stroke-width="1.2"/>
+  <path d="M948 603 C1002 621, 1060 621, 1114 603" fill="none" stroke="${accent}" stroke-opacity="0.14" stroke-width="1.2"/>
+  <g opacity="0.2">
+    <circle cx="154" cy="88" r="2.4" fill="${accent}"/>
+    <circle cx="1026" cy="88" r="2.4" fill="${accent}"/>
+    <circle cx="154" cy="586" r="2.4" fill="${accent}"/>
+    <circle cx="1026" cy="586" r="2.4" fill="${accent}"/>
   </g>
-  <text x="1040" y="96" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="12" font-style="italic">by ${safePickedBy}</text>`
-    : ""}
 
   <!-- ===== LEFT COLUMN ===== -->
 
   <!-- Avatar frame -->
   <rect x="54" y="56" width="200" height="200" rx="10" fill="${avatarFrameFill}" stroke="${palette.border}" stroke-opacity="0.4" stroke-width="2"/>
   <rect x="58" y="60" width="192" height="192" rx="8" fill="none" stroke="${accent}" stroke-opacity="0.15" stroke-width="1" stroke-dasharray="3,6"/>
+  <rect x="68" y="70" width="172" height="172" rx="6" fill="none" stroke="${accent}" stroke-opacity="0.12" stroke-width="1"/>
+  <path d="M82 86 L96 86 L104 78" fill="none" stroke="${accent}" stroke-opacity="0.24" stroke-width="1.2"/>
+  <path d="M226 86 L212 86 L204 78" fill="none" stroke="${accent}" stroke-opacity="0.24" stroke-width="1.2"/>
+  <path d="M82 226 L96 226 L104 234" fill="none" stroke="${accent}" stroke-opacity="0.24" stroke-width="1.2"/>
+  <path d="M226 226 L212 226 L204 234" fill="none" stroke="${accent}" stroke-opacity="0.24" stroke-width="1.2"/>
   <text x="154" y="158" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="13" font-style="italic" fill-opacity="0.4">No Portrait</text>
 
   <!-- Ornate diamond separator -->
@@ -5470,6 +5489,7 @@ async function generateCharacterCardImage(character, options = {}) {
 
   <!-- Left vitals panel -->
   <rect x="54" y="300" width="200" height="275" rx="8" fill="${palette.sectionBg}" fill-opacity="${vitalsPanelOpacity}" stroke="${palette.border}" stroke-opacity="0.15" stroke-width="1"/>
+  <rect x="62" y="308" width="184" height="259" rx="6" fill="none" stroke="${accent}" stroke-opacity="0.08" stroke-width="1"/>
 
   <!-- Class -->
   <text x="154" y="330" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="11" letter-spacing="2" text-transform="uppercase">CLASS</text>
@@ -5495,6 +5515,8 @@ async function generateCharacterCardImage(character, options = {}) {
   <!-- CHARACTER NAME -->
   <text x="${cx}" y="82" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="44" font-weight="700" letter-spacing="1">${safeName}</text>
   ${safeTitleName ? `<text x="${cx}" y="104" fill="${accent}" font-family="Georgia, 'Times New Roman', serif" font-size="15" font-style="italic" letter-spacing="1.5" fill-opacity="0.85">~ ${safeTitleName} ~</text>` : ""}
+  <path d="M${cx + 560} 72 C${cx + 620} 52, ${cx + 720} 52, ${cx + 780} 72" fill="none" stroke="${accent}" stroke-opacity="0.16" stroke-width="1.3"/>
+  <circle cx="${cx + 670}" cy="66" r="3" fill="${accent}" fill-opacity="0.22"/>
   ${divider(cx, safeTitleName ? 114 : 98, cw)}
 
   <!-- BIO (TALE) -->
@@ -5556,9 +5578,11 @@ async function generateCharacterCardImage(character, options = {}) {
   })()}
 
   <!-- Bottom flourish -->
+  <path d="M92 622 C150 608, 214 608, 270 622" fill="none" stroke="${accent}" stroke-opacity="0.12" stroke-width="1.1"/>
   <line x1="400" y1="630" x2="560" y2="630" stroke="${accent}" stroke-opacity="0.15" stroke-width="1"/>
   <text x="600" y="635" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="12" font-style="italic" fill-opacity="0.45">~ written in the annals of Crazyland ~</text>
   <line x1="640" y1="630" x2="800" y2="630" stroke="${accent}" stroke-opacity="0.15" stroke-width="1"/>
+  <path d="M930 622 C986 608, 1050 608, 1108 622" fill="none" stroke="${accent}" stroke-opacity="0.12" stroke-width="1.1"/>
 </svg>`;
 
   // Load avatar from character URL only
@@ -5677,6 +5701,14 @@ function updateServerCountPresence() {
 client.once("clientReady", () => {
   console.log(`Logged in as ${client.user.tag}`);
   updateServerCountPresence();
+
+  const connectedGuilds = Array.from(client.guilds.cache.values())
+    .map((guild) => ({ id: guild.id, name: guild.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  console.log(`[Startup] Connected to ${connectedGuilds.length} server(s):`);
+  for (const guild of connectedGuilds) {
+    console.log(`- ${guild.name} (${guild.id})`);
+  }
 
   (async () => {
     try {

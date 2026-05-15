@@ -110,6 +110,8 @@ On startup, commands are registered by env mode:
 
 - Global slash commands can take time to propagate after restart.
 - Persist the `data/` directory in production.
+- Character profile card content and user profile info are stored in `data/characters.json` and `data/userProfiles.json`.
+- Pushing new code must not replace the mounted `data/` volume, otherwise existing profile card info will be lost.
 - If deploying with Docker, ensure env vars are present in runtime environment.
 
 ## Hosting
