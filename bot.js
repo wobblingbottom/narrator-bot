@@ -5342,23 +5342,14 @@ async function generateCharacterCardImage(character, options = {}) {
   const ownerName = clampText(options.ownerDisplay || "Unassigned", 20);
   const safeOwner = escapeSvgText(ownerName);
 
-  // Decorative corner ornaments
-  const cornerOrnament = (cx, cy, rot) => `
-    <g transform="translate(${cx},${cy}) rotate(${rot})">
-      <path d="M0,0 Q12,-18 30,-22 Q18,-8 22,0 Z" fill="${accent}" fill-opacity="0.35"/>
-      <path d="M0,0 Q-4,-14 6,-28 Q10,-12 14,-4 Z" fill="${accent}" fill-opacity="0.2"/>
-      <circle cx="8" cy="-8" r="2.5" fill="${accent}" fill-opacity="0.5"/>
-    </g>`;
-
   // Section label with medieval bracket style
   const sectionLabel = (x, y, label) => `
-    <line x1="${x}" y1="${y}" x2="${x + 14}" y2="${y}" stroke="${accent}" stroke-opacity="0.5" stroke-width="1.5"/>
+    <line x1="${x}" y1="${y}" x2="${x + 14}" y2="${y}" stroke="${palette.border}" stroke-opacity="0.35" stroke-width="1"/>
     <text x="${x + 18}" y="${y + 4}" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="12" letter-spacing="2.5" font-style="italic">${label}</text>
-    <line x1="${x + 18 + label.length * 8.5}" y1="${y}" x2="${x + 18 + label.length * 8.5 + 14}" y2="${y}" stroke="${accent}" stroke-opacity="0.5" stroke-width="1.5"/>`;
+    <line x1="${x + 18 + label.length * 8.5}" y1="${y}" x2="${x + 18 + label.length * 8.5 + 14}" y2="${y}" stroke="${palette.border}" stroke-opacity="0.35" stroke-width="1"/>`;
 
   const divider = (x, y, w) => `
-    <line x1="${x}" y1="${y}" x2="${x + w}" y2="${y}" stroke="${accent}" stroke-opacity="0.18" stroke-width="1"/>
-    <circle cx="${x + w / 2}" cy="${y}" r="2.5" fill="${accent}" fill-opacity="0.3"/>`;
+    <line x1="${x}" y1="${y}" x2="${x + w}" y2="${y}" stroke="${palette.border}" stroke-opacity="0.18" stroke-width="1"/>`;
 
   // Right-side content x start (after avatar column)
   const cx = 280;
@@ -5406,104 +5397,53 @@ async function generateCharacterCardImage(character, options = {}) {
       <stop offset="40%" stop-color="${palette.bgB}"/>
       <stop offset="100%" stop-color="${palette.bgC}"/>
     </linearGradient>
-    <linearGradient id="accentGlow" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="${accent}" stop-opacity="0.7"/>
-      <stop offset="50%" stop-color="${accent}" stop-opacity="0.2"/>
-      <stop offset="100%" stop-color="${accent}" stop-opacity="0"/>
-    </linearGradient>
-    <radialGradient id="mist1" cx="0.2" cy="0.8" r="0.6">
-      <stop offset="0%" stop-color="${accent}" stop-opacity="0.12"/>
-      <stop offset="100%" stop-color="${accent}" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="mist2" cx="0.85" cy="0.15" r="0.5">
-      <stop offset="0%" stop-color="${accent}" stop-opacity="0.08"/>
-      <stop offset="100%" stop-color="${accent}" stop-opacity="0"/>
-    </radialGradient>
     <filter id="glow">
       <feGaussianBlur stdDeviation="6" result="blur"/>
       <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
     <pattern id="panelGrain" width="24" height="24" patternUnits="userSpaceOnUse">
-      <circle cx="4" cy="5" r="0.8" fill="${accent}" fill-opacity="0.07"/>
       <circle cx="18" cy="9" r="0.7" fill="${palette.textMuted}" fill-opacity="0.06"/>
-      <circle cx="10" cy="18" r="0.9" fill="${accent}" fill-opacity="0.05"/>
+      <circle cx="10" cy="18" r="0.8" fill="${palette.border}" fill-opacity="0.05"/>
     </pattern>
-    <linearGradient id="frameShine" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="${accent}" stop-opacity="0.28"/>
-      <stop offset="50%" stop-color="${accent}" stop-opacity="0.03"/>
-      <stop offset="100%" stop-color="${accent}" stop-opacity="0.2"/>
-    </linearGradient>
   </defs>
 
   <!-- Background -->
   ${hasBg ? `<rect x="0" y="0" width="${width}" height="${height}" fill="${palette.bgA}" fill-opacity="0"/>` : `<rect x="0" y="0" width="${width}" height="${height}" fill="url(#bg)"/>`}
-  ${hasBg ? "" : `<rect x="0" y="0" width="${width}" height="${height}" fill="url(#mist1)"/>`}
-  ${hasBg ? "" : `<rect x="0" y="0" width="${width}" height="${height}" fill="url(#mist2)"/>`}
-
-  <!-- Mystical orbs -->
-  ${hasBg ? "" : `<circle cx="100" cy="580" r="120" fill="${accent}" opacity="0.06"/>`}
-  ${hasBg ? "" : `<circle cx="1050" cy="90" r="100" fill="${accent}" opacity="0.05"/>`}
 
   <!-- Main panel -->
   <rect x="24" y="24" width="1152" height="627" rx="12" fill="${panelFill}" stroke="${palette.border}" stroke-opacity="0.4" stroke-width="2"/>
-  <rect x="28" y="28" width="1144" height="619" rx="10" fill="none" stroke="${accent}" stroke-opacity="0.24" stroke-width="2"/>
-  <rect x="24" y="24" width="1152" height="4" rx="2" fill="url(#accentGlow)"/>
   <rect x="24" y="24" width="1152" height="627" rx="12" fill="url(#panelGrain)" opacity="${hasBg ? "0.2" : "0.5"}"/>
-
-  <!-- Corner ornaments -->
-  ${cornerOrnament(40, 40, 0)}
-  ${cornerOrnament(1160, 40, 90)}
-  ${cornerOrnament(1160, 636, 180)}
-  ${cornerOrnament(40, 636, 270)}
 
   <!-- Inner border -->
   <rect x="40" y="40" width="1120" height="595" rx="6" fill="none" stroke="${palette.border}" stroke-opacity="0.12" stroke-width="1" stroke-dasharray="4,8"/>
-  <rect x="34" y="34" width="1132" height="607" rx="9" fill="none" stroke="${accent}" stroke-opacity="0.1" stroke-width="1" stroke-dasharray="18,10"/>
-  <rect x="50" y="50" width="1100" height="575" rx="10" fill="none" stroke="url(#frameShine)" stroke-opacity="0.3" stroke-width="1"/>
-  <path d="M70 48 L138 48" fill="none" stroke="${accent}" stroke-opacity="0.32" stroke-width="2"/>
-  <path d="M1062 48 L1130 48" fill="none" stroke="${accent}" stroke-opacity="0.32" stroke-width="2"/>
-  <path d="M70 627 L138 627" fill="none" stroke="${accent}" stroke-opacity="0.24" stroke-width="2"/>
-  <path d="M1062 627 L1130 627" fill="none" stroke="${accent}" stroke-opacity="0.24" stroke-width="2"/>
-  <path d="M48 70 L48 138" fill="none" stroke="${accent}" stroke-opacity="0.28" stroke-width="2"/>
-  <path d="M48 521 L48 589" fill="none" stroke="${accent}" stroke-opacity="0.2" stroke-width="2"/>
-  <path d="M1152 70 L1152 138" fill="none" stroke="${accent}" stroke-opacity="0.28" stroke-width="2"/>
-  <path d="M1152 521 L1152 589" fill="none" stroke="${accent}" stroke-opacity="0.2" stroke-width="2"/>
-  <path d="M86 72 C140 54, 198 54, 252 72" fill="none" stroke="${accent}" stroke-opacity="0.18" stroke-width="1.4"/>
-  <path d="M948 72 C1002 54, 1060 54, 1114 72" fill="none" stroke="${accent}" stroke-opacity="0.18" stroke-width="1.4"/>
-  <path d="M86 603 C140 621, 198 621, 252 603" fill="none" stroke="${accent}" stroke-opacity="0.14" stroke-width="1.2"/>
-  <path d="M948 603 C1002 621, 1060 621, 1114 603" fill="none" stroke="${accent}" stroke-opacity="0.14" stroke-width="1.2"/>
-  <g opacity="0.2">
-    <circle cx="154" cy="88" r="2.4" fill="${accent}"/>
-    <circle cx="1026" cy="88" r="2.4" fill="${accent}"/>
-    <circle cx="154" cy="586" r="2.4" fill="${accent}"/>
-    <circle cx="1026" cy="586" r="2.4" fill="${accent}"/>
-  </g>
+  <rect x="50" y="50" width="1100" height="575" rx="10" fill="none" stroke="${palette.border}" stroke-opacity="0.16" stroke-width="1"/>
+  <path d="M72 48 L128 48 M1072 48 L1128 48 M72 627 L128 627 M1072 627 L1128 627" fill="none" stroke="${palette.border}" stroke-opacity="0.26" stroke-width="1.2"/>
+  <path d="M48 72 L48 128 M48 547 L48 603 M1152 72 L1152 128 M1152 547 L1152 603" fill="none" stroke="${palette.border}" stroke-opacity="0.22" stroke-width="1.2"/>
+  <path d="M86 70 C136 58, 190 58, 240 70 M960 70 C1010 58, 1064 58, 1114 70" fill="none" stroke="${palette.border}" stroke-opacity="0.14" stroke-width="1.1"/>
+  <path d="M86 606 C136 618, 190 618, 240 606 M960 606 C1010 618, 1064 618, 1114 606" fill="none" stroke="${palette.border}" stroke-opacity="0.14" stroke-width="1.1"/>
+  <circle cx="154" cy="86" r="2" fill="${palette.border}" fill-opacity="0.28"/>
+  <circle cx="1026" cy="86" r="2" fill="${palette.border}" fill-opacity="0.28"/>
+  <circle cx="154" cy="588" r="2" fill="${palette.border}" fill-opacity="0.22"/>
+  <circle cx="1026" cy="588" r="2" fill="${palette.border}" fill-opacity="0.22"/>
 
   <!-- ===== LEFT COLUMN ===== -->
 
   <!-- Avatar frame -->
   <rect x="54" y="56" width="200" height="200" rx="10" fill="${avatarFrameFill}" stroke="${palette.border}" stroke-opacity="0.4" stroke-width="2"/>
-  <rect x="58" y="60" width="192" height="192" rx="8" fill="none" stroke="${accent}" stroke-opacity="0.15" stroke-width="1" stroke-dasharray="3,6"/>
-  <rect x="68" y="70" width="172" height="172" rx="6" fill="none" stroke="${accent}" stroke-opacity="0.12" stroke-width="1"/>
-  <path d="M82 86 L96 86 L104 78" fill="none" stroke="${accent}" stroke-opacity="0.24" stroke-width="1.2"/>
-  <path d="M226 86 L212 86 L204 78" fill="none" stroke="${accent}" stroke-opacity="0.24" stroke-width="1.2"/>
-  <path d="M82 226 L96 226 L104 234" fill="none" stroke="${accent}" stroke-opacity="0.24" stroke-width="1.2"/>
-  <path d="M226 226 L212 226 L204 234" fill="none" stroke="${accent}" stroke-opacity="0.24" stroke-width="1.2"/>
+  <rect x="64" y="66" width="180" height="180" rx="8" fill="none" stroke="${palette.border}" stroke-opacity="0.12" stroke-width="1"/>
+  <path d="M82 82 L100 82 L108 74 M226 82 L208 82 L200 74 M82 230 L100 230 L108 238 M226 230 L208 230 L200 238" fill="none" stroke="${palette.border}" stroke-opacity="0.18" stroke-width="1"/>
   <text x="154" y="158" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="13" font-style="italic" fill-opacity="0.4">No Portrait</text>
-
-  <!-- Ornate diamond separator -->
-  <line x1="70" y1="278" x2="130" y2="278" stroke="${accent}" stroke-opacity="0.2" stroke-width="1"/>
-  <polygon points="154,270 162,280 154,290 146,280" fill="none" stroke="${accent}" stroke-opacity="0.35" stroke-width="1.5"/>
-  <circle cx="154" cy="280" r="2" fill="${accent}" fill-opacity="0.4"/>
-  <line x1="178" y1="278" x2="238" y2="278" stroke="${accent}" stroke-opacity="0.2" stroke-width="1"/>
+  <line x1="72" y1="278" x2="132" y2="278" stroke="${palette.border}" stroke-opacity="0.16" stroke-width="1"/>
+  <polygon points="154,270 162,280 154,290 146,280" fill="none" stroke="${palette.border}" stroke-opacity="0.22" stroke-width="1.2"/>
+  <line x1="176" y1="278" x2="236" y2="278" stroke="${palette.border}" stroke-opacity="0.16" stroke-width="1"/>
 
   <!-- Left vitals panel -->
   <rect x="54" y="300" width="200" height="275" rx="8" fill="${palette.sectionBg}" fill-opacity="${vitalsPanelOpacity}" stroke="${palette.border}" stroke-opacity="0.15" stroke-width="1"/>
-  <rect x="62" y="308" width="184" height="259" rx="6" fill="none" stroke="${accent}" stroke-opacity="0.08" stroke-width="1"/>
+  <rect x="62" y="308" width="184" height="259" rx="6" fill="none" stroke="${palette.border}" stroke-opacity="0.08" stroke-width="1"/>
 
   <!-- Class -->
   <text x="154" y="330" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="11" letter-spacing="2" text-transform="uppercase">CLASS</text>
-  <text x="154" y="352" text-anchor="middle" fill="${accent}" font-family="Georgia, 'Times New Roman', serif" font-size="17" font-weight="600">${safeClass}</text>
+  <text x="154" y="352" text-anchor="middle" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="17" font-weight="600">${safeClass}</text>
 
   <!-- Race -->
   <line x1="80" y1="370" x2="228" y2="370" stroke="${palette.border}" stroke-opacity="0.2" stroke-width="1"/>
@@ -5524,9 +5464,9 @@ async function generateCharacterCardImage(character, options = {}) {
 
   <!-- CHARACTER NAME -->
   <text x="${cx}" y="82" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="44" font-weight="700" letter-spacing="1">${safeName}</text>
-  ${safeTitleName ? `<text x="${cx}" y="104" fill="${accent}" font-family="Georgia, 'Times New Roman', serif" font-size="15" font-style="italic" letter-spacing="1.5" fill-opacity="0.85">~ ${safeTitleName} ~</text>` : ""}
-  <path d="M${cx + 560} 72 C${cx + 620} 52, ${cx + 720} 52, ${cx + 780} 72" fill="none" stroke="${accent}" stroke-opacity="0.16" stroke-width="1.3"/>
-  <circle cx="${cx + 670}" cy="66" r="3" fill="${accent}" fill-opacity="0.22"/>
+  ${safeTitleName ? `<text x="${cx}" y="104" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="15" font-style="italic" letter-spacing="1.5" fill-opacity="0.85">~ ${safeTitleName} ~</text>` : ""}
+  <path d="M${cx + 560} 70 C${cx + 610} 58, ${cx + 690} 58, ${cx + 740} 70" fill="none" stroke="${palette.border}" stroke-opacity="0.14" stroke-width="1.1"/>
+  <circle cx="${cx + 650}" cy="66" r="2" fill="${palette.border}" fill-opacity="0.24"/>
   ${divider(cx, safeTitleName ? 114 : 98, cw)}
 
   <!-- BIO (TALE) -->
@@ -5561,11 +5501,11 @@ async function generateCharacterCardImage(character, options = {}) {
 
   <!-- Stats row -->
   <text x="${cx}" y="${statsY + 14}" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="12" letter-spacing="2">LEVEL</text>
-  <text x="${cx + 52}" y="${statsY + 14}" fill="${accent}" font-family="Georgia, 'Times New Roman', serif" font-size="18" font-weight="700">${levelInfo.level}</text>
+  <text x="${cx + 52}" y="${statsY + 14}" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="18" font-weight="700">${levelInfo.level}</text>
 
   <!-- XP bar -->
   <rect x="${cx + 90}" y="${statsY + 2}" width="${xpBarWidth}" height="14" rx="7" fill="${palette.sectionBg}" stroke="${palette.border}" stroke-opacity="0.25" stroke-width="1"/>
-  <rect x="${cx + 91}" y="${statsY + 3}" width="${Math.max(0, xpFillWidth - 2)}" height="12" rx="6" fill="${accent}" fill-opacity="0.6"/>
+  <rect x="${cx + 91}" y="${statsY + 3}" width="${Math.max(0, xpFillWidth - 2)}" height="12" rx="6" fill="${palette.textMuted}" fill-opacity="0.45"/>
   <text x="${cx + 90 + xpBarWidth / 2}" y="${statsY + 13}" text-anchor="middle" fill="${palette.textPrimary}" font-family="Georgia, 'Times New Roman', serif" font-size="9" font-weight="600">${levelInfo.currentXp} / ${levelInfo.nextXp} XP</text>
 
   <text x="${cx + 310}" y="${statsY + 14}" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="12" letter-spacing="2">MESSAGES</text>
@@ -5577,22 +5517,20 @@ async function generateCharacterCardImage(character, options = {}) {
   ${hasWalletBoost || hasCooldownBoost ? `<!-- Boost badges -->` : ""}
   ${hasWalletBoost ? `
   <g transform="translate(${cx + 720}, ${statsY - 2})">
-    <rect x="0" y="0" width="80" height="20" rx="4" fill="${accent}" fill-opacity="0.2" stroke="${accent}" stroke-opacity="0.4" stroke-width="1"/>
-    <text x="10" y="14" fill="${accent}" font-family="Georgia, 'Times New Roman', serif" font-size="10" font-weight="600" letter-spacing="0.5">💰 WALLET+</text>
+    <rect x="0" y="0" width="80" height="20" rx="4" fill="${palette.sectionBg}" fill-opacity="0.35" stroke="${palette.border}" stroke-opacity="0.35" stroke-width="1"/>
+    <text x="10" y="14" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="10" font-weight="600" letter-spacing="0.5">💰 WALLET+</text>
   </g>` : ""}
   ${hasCooldownBoost ? `
   <g transform="translate(${cx + (hasWalletBoost ? 810 : 720)}, ${statsY - 2})">
-    <rect x="0" y="0" width="80" height="20" rx="4" fill="${accent}" fill-opacity="0.2" stroke="${accent}" stroke-opacity="0.4" stroke-width="1"/>
-    <text x="10" y="14" fill="${accent}" font-family="Georgia, 'Times New Roman', serif" font-size="10" font-weight="600" letter-spacing="0.5">⚡ SPEED+</text>
+    <rect x="0" y="0" width="80" height="20" rx="4" fill="${palette.sectionBg}" fill-opacity="0.35" stroke="${palette.border}" stroke-opacity="0.35" stroke-width="1"/>
+    <text x="10" y="14" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="10" font-weight="600" letter-spacing="0.5">⚡ SPEED+</text>
   </g>` : ""}`;
   })()}
 
   <!-- Bottom flourish -->
-  <path d="M92 622 C150 608, 214 608, 270 622" fill="none" stroke="${accent}" stroke-opacity="0.12" stroke-width="1.1"/>
-  <line x1="400" y1="630" x2="560" y2="630" stroke="${accent}" stroke-opacity="0.15" stroke-width="1"/>
+  <line x1="400" y1="630" x2="560" y2="630" stroke="${palette.border}" stroke-opacity="0.15" stroke-width="1"/>
   <text x="600" y="635" text-anchor="middle" fill="${palette.textMuted}" font-family="Georgia, 'Times New Roman', serif" font-size="12" font-style="italic" fill-opacity="0.45">~ written in the annals of Crazyland ~</text>
-  <line x1="640" y1="630" x2="800" y2="630" stroke="${accent}" stroke-opacity="0.15" stroke-width="1"/>
-  <path d="M930 622 C986 608, 1050 608, 1108 622" fill="none" stroke="${accent}" stroke-opacity="0.12" stroke-width="1.1"/>
+  <line x1="640" y1="630" x2="800" y2="630" stroke="${palette.border}" stroke-opacity="0.15" stroke-width="1"/>
 </svg>`;
 
   // Load avatar from character URL only
