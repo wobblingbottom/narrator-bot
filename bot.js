@@ -3059,6 +3059,7 @@ function distributePremiumDailyRewards() {
     }
 
     let rewardCount = 0;
+    const rewardedPremiumUsers = [];
 
     // Award to manual premium users (PREMIUM_USERS env)
     for (const userId of PREMIUM_USER_IDS) {
@@ -3067,6 +3068,7 @@ function distributePremiumDailyRewards() {
         if (member) {
           addPoints(guild.id, userId, PREMIUM_DAILY_POINTS);
           rewardCount++;
+          rewardedPremiumUsers.push(member.user?.tag || member.displayName || userId);
         }
       }
     }
@@ -3080,11 +3082,16 @@ function distributePremiumDailyRewards() {
       if (PREMIUM_USER_IDS.has(userId)) continue; // already awarded above
       addPoints(guildId, userId, PREMIUM_DAILY_POINTS);
       rewardCount++;
+      const guild = client.guilds.cache.get(guildId);
+      const member = guild?.members?.cache?.get(userId);
+      rewardedPremiumUsers.push(member?.user?.tag || member?.displayName || userId);
     }
 
     writeJson(PREMIUM_DAILY_REWARD_PATH, { lastDate: today });
     if (rewardCount > 0) {
-      console.log(`[Premium Daily] Awarded ${PREMIUM_DAILY_POINTS} points to ${rewardCount} premium user(s).`);
+      console.log(
+        `[Premium Daily] Awarded ${PREMIUM_DAILY_POINTS} points to ${rewardCount} premium user(s): ${rewardedPremiumUsers.join(", ")}.`
+      );
     }
   } catch (error) {
     console.error("Failed to distribute premium daily rewards:", error);
